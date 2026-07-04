@@ -1,6 +1,6 @@
 {
   "name": "@golproductions/exnos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Live browser-state verification for AI coding agents. One MCP call, milliseconds, truth. Free, by GOL Productions.",
   "bin": {
     "exnos": "server/exnos-mcp.cjs"
@@ -25,7 +25,11 @@
     "coding-agent"
   ],
   "author": "GOL Productions (https://golproductions.com)",
-  "homepage": "https://golproductions.com/exnos/",
+  "homepage": "https://golproductions.com/exnos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/golproductions/exnos.git"
+  },
   "publishConfig": {
     "access": "public"
   }
