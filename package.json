@@ -1,0 +1,32 @@
+{
+  "name": "@golproductions/exnos",
+  "version": "0.1.0",
+  "description": "Live browser-state verification for AI coding agents. One MCP call, milliseconds, truth. Free, by GOL Productions.",
+  "bin": {
+    "exnos": "server/exnos-mcp.cjs"
+  },
+  "license": "MIT",
+  "files": [
+    "server/",
+    "extension/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "browser",
+    "verification",
+    "chrome",
+    "claude-code",
+    "coding-agent"
+  ],
+  "author": "GOL Productions (https://golproductions.com)",
+  "homepage": "https://golproductions.com/exnos/",
+  "publishConfig": {
+    "access": "public"
+  }
+}
