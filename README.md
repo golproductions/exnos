@@ -55,4 +55,12 @@ the server, OFF when it is waiting.
 - Internal pages (`chrome://`, web store) cannot be inspected; Exnos says so instead of guessing.
 - Console errors are captured from page load by a tap injected at `document_start`; pages opened before the extension loaded need one reload to start capturing.
 
+## License and trademarks
+
+Exnos is free software under the MIT license. The copyright notice must stay
+in all copies, that is the license's own condition. The names "Exnos" and
+"GOL Productions" and the Exnos logo are trademarks of GOL Productions and are
+not licensed under MIT. Forks must use a different name and must not imply
+endorsement by GOL Productions.
+
 Free forever. Made by [GOL Productions](https://golproductions.com).
