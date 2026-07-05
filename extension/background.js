@@ -1,3 +1,4 @@
+// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). MIT license.
 // Exnos service worker. Holds a WebSocket to the local Exnos MCP server and
 // answers its verification requests by extracting live state from real tabs.
 // The extension is the eyes; the MCP server is the mouth. Nothing here ever

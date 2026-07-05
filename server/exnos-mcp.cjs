@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 'use strict';
+// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). MIT license.
 // Exnos MCP server. Zero dependencies.
 // stdio side: newline-delimited JSON-RPC (MCP) for the coding agent.
 // socket side: a tiny WebSocket server on 127.0.0.1 that the Exnos Chrome
@@ -81,6 +82,23 @@ function onExtMessage(text) {
 }
 
 const server = http.createServer((req, res) => {
+  // POST /rpc lets a second exnos instance (port already taken) proxy its
+  // tool calls through the instance that owns the extension connection.
+  if (req.method === 'POST' && req.url === '/rpc') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', async () => {
+      res.setHeader('Content-Type', 'application/json');
+      try {
+        const { cmd, args } = JSON.parse(body);
+        const data = await askExtension(cmd, args);
+        res.end(JSON.stringify({ ok: true, data }));
+      } catch (e) {
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ exnos: true, extension: !!ext }));
 });
@@ -124,7 +142,36 @@ setInterval(() => {
   if (ext) { try { wsWrite(ext.socket, 1, JSON.stringify({ ping: true })); } catch {} }
 }, 20000);
 
+// When another exnos instance already owns the port, we proxy through it
+// instead of failing. Two agents, one Chrome, zero conflicts.
+let proxyMode = false;
+
+function askViaProxy(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ cmd, args });
+    const req = http.request({
+      host: '127.0.0.1', port: PORT, path: '/rpc', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: REQUEST_TIMEOUT + 1000
+    }, res => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.ok) resolve(msg.data);
+          else reject(new Error(msg.error || 'proxy error'));
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(new Error('Proxy to primary exnos instance timed out')); });
+    req.on('error', e => reject(new Error('Port ' + PORT + ' is taken by another process that is not exnos: ' + e.message)));
+    req.end(body);
+  });
+}
+
 function askExtension(cmd, args) {
+  if (proxyMode) return askViaProxy(cmd, args);
   return new Promise((resolve, reject) => {
     if (!ext) {
       return reject(new Error(
@@ -181,7 +228,7 @@ async function onRpc(msg) {
     return reply(id, {
       protocolVersion: (params && params.protocolVersion) || '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'exnos', version: '0.1.1' }
+      serverInfo: { name: 'exnos', version: '0.1.2' }
     });
   }
   if (method === 'notifications/initialized' || method === 'initialized') return; // notification
@@ -221,6 +268,13 @@ process.stdin.on('data', chunk => {
 process.stdin.on('end', () => { if (sawRpc) process.exit(0); });
 
 server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    // Another exnos instance owns the port. Become a proxy client instead
+    // of a broken server: tool calls route through the primary over HTTP.
+    proxyMode = true;
+    process.stderr.write('exnos: port ' + PORT + ' in use, proxying through the primary exnos instance\n');
+    return;
+  }
   process.stderr.write('exnos: socket port ' + PORT + ' error: ' + e.message + '\n');
 });
 server.listen(PORT, '127.0.0.1', () => {

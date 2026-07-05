@@ -1,3 +1,4 @@
+// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). MIT license.
 // Exnos console tap. Runs in the page's MAIN world at document_start so it
 // catches every console.error/warn, uncaught exception, and unhandled promise
 // rejection from page load onward. Exnos verify reads window.__exnos.errors.
