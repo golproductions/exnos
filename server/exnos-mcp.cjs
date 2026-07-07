@@ -17,6 +17,79 @@ if (process.argv[2] === 'path') {
   process.exit(0);
 }
 
+// The standing rule. MCP tool descriptions get Exnos considered; a rules file
+// gets it called. `exnos init` writes this into every agent rules file present
+// in the current project, so the "when" survives clients that ignore MCP
+// server instructions.
+const RULE_MARK = '<!-- exnos:rule -->';
+const RULE_TEXT = [
+  '',
+  RULE_MARK,
+  '## Exnos: verify the browser, not your model of it',
+  '',
+  'This project has Exnos connected: `exnos_verify` returns the live Chrome tab state',
+  '(DOM, form values, console errors, and uncaught exceptions) in milliseconds, read-only.',
+  '',
+  '- After every edit to HTML, CSS, or JS that a browser is rendering, call `exnos_verify`. Treat it like the read-back after a write.',
+  '- The instant the user reports a page problem ("broken", "blank", "not working", "still the same"), call `exnos_verify` before reasoning about the code. The console error usually names the bug.',
+  '- Never say "done", "fixed", or "deployed" for anything browser-facing without an `exnos_verify` receipt.',
+  '- After a deploy or dev-server restart, verify the live tab actually got the new build.',
+  '- Starting a browser-related task? Look at the page first.',
+  '- No browser surface in the task? Do not call it.',
+  RULE_MARK,
+  ''
+].join('\n');
+
+const RULE_FILES = [
+  'CLAUDE.md',                          // Claude Code
+  'AGENTS.md',                          // Codex + emerging standard
+  'GEMINI.md',                          // Gemini CLI
+  '.windsurfrules',                     // Windsurf
+  '.clinerules',                        // Cline / Roo
+  '.github/copilot-instructions.md',    // GitHub Copilot
+  '.cursor/rules/exnos.mdc'             // Cursor (always creatable: own file)
+];
+
+if (process.argv[2] === 'rules') {
+  console.log(RULE_TEXT.trim());
+  process.exit(0);
+}
+
+if (process.argv[2] === 'init') {
+  const fs = require('fs');
+  const path = require('path');
+  const cwd = process.cwd();
+  const touched = [];
+  const skipped = [];
+  for (const rel of RULE_FILES) {
+    const file = path.join(cwd, rel);
+    const exists = fs.existsSync(file);
+    // Only Cursor's dedicated .mdc file is created from scratch; for shared
+    // rules files we append only where the agent is evidently in use.
+    const isOwnFile = rel === '.cursor/rules/exnos.mdc';
+    if (isOwnFile && !fs.existsSync(path.join(cwd, '.cursor'))) continue;
+    if (!exists && !isOwnFile) continue;
+    const current = exists ? fs.readFileSync(file, 'utf8') : '';
+    if (current.includes(RULE_MARK)) { skipped.push(rel); continue; }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const body = isOwnFile
+      ? '---\ndescription: Verify live browser state with Exnos\nalwaysApply: true\n---\n' + RULE_TEXT
+      : current + (current.endsWith('\n') || current === '' ? '' : '\n') + RULE_TEXT;
+    fs.writeFileSync(file, body, 'utf8');
+    touched.push(rel);
+  }
+  if (!touched.length && !skipped.length) {
+    // Fresh project with no agent rules files yet: seed the emerging standard.
+    const file = path.join(cwd, 'AGENTS.md');
+    fs.writeFileSync(file, '# Agent instructions\n' + RULE_TEXT, 'utf8');
+    touched.push('AGENTS.md (created)');
+  }
+  for (const f of touched) console.log('exnos rule written: ' + f);
+  for (const f of skipped) console.log('exnos rule already present: ' + f);
+  console.log('Re-run any time; init is idempotent.');
+  process.exit(0);
+}
+
 const PORT = parseInt(process.env.EXNOS_PORT || '17872', 10);
 const WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const REQUEST_TIMEOUT = 5000;
@@ -196,7 +269,7 @@ function askExtension(cmd, args) {
 const TOOLS = [
   {
     name: 'exnos_verify',
-    description: 'Verify live browser state in milliseconds. Returns the current Chrome tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Call this to check reality BEFORE claiming any web change is done. Read-only: never modifies the page. Exnos, free by GOL Productions.',
+    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos, free by GOL Productions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -228,7 +301,8 @@ async function onRpc(msg) {
     return reply(id, {
       protocolVersion: (params && params.protocolVersion) || '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'exnos', version: '0.1.2' }
+      serverInfo: { name: 'exnos', version: '0.1.3' },
+      instructions: 'Exnos gives you live, read-only access to the user\'s Chrome: DOM state, form values, and, critically, console errors and uncaught exceptions you cannot see any other way. Standing rule: if a browser is rendering the thing you are working on, look at it with exnos_verify after every change you make, the instant the user reports a problem, and always before you say it works. At millisecond cost, verification is a reflex, not a step: edit, verify, fix, verify. Reasoning about what the browser "probably" did is a model; exnos_verify is reality. Do not call it for work with no browser surface.'
     });
   }
   if (method === 'notifications/initialized' || method === 'initialized') return; // notification
@@ -242,7 +316,13 @@ async function onRpc(msg) {
       if (name === 'exnos_verify') data = await askExtension('state', { tab: args.tab, selector: args.selector });
       else if (name === 'exnos_tabs') data = await askExtension('tabs', {});
       else return replyErr(id, -32602, 'Unknown tool: ' + name);
-      return reply(id, { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+      let text = JSON.stringify(data, null, 2);
+      // Make the payoff legible: console errors are the one thing the agent
+      // cannot see any other way, so surface them above the JSON.
+      if (name === 'exnos_verify' && data && Array.isArray(data.errors) && data.errors.length) {
+        text = data.errors.length + ' console error(s) / uncaught exception(s) on this page. Read them before reasoning about the code:\n' + text;
+      }
+      return reply(id, { content: [{ type: 'text', text }] });
     } catch (e) {
       return reply(id, { content: [{ type: 'text', text: 'EXNOS ERROR: ' + e.message }], isError: true });
     }
