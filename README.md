@@ -21,8 +21,10 @@ already have open.
 
 **1. Connect your coding agent (Claude Code)**
 
-```
-claude mcp add --scope user exnos -- npx @golproductions/exnos
+Add to your MCP config (works in any MCP client, any OS - Claude Code .mcp.json, Cursor, Windsurf, anything that speaks MCP):
+
+```json
+{ "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }
 ```
 
 Any other MCP-capable agent: run `npx @golproductions/exnos` as a stdio MCP
