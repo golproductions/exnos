@@ -301,7 +301,9 @@ async function onRpc(msg) {
     return reply(id, {
       protocolVersion: (params && params.protocolVersion) || '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'exnos', version: '0.1.3' },
+      // Single source of truth: package.json. A hardcoded string here shipped
+      // 0.1.4 announcing itself as 0.1.3; never let the two drift again.
+      serverInfo: { name: 'exnos', version: require('../package.json').version },
       instructions: 'Exnos gives you live, read-only access to the user\'s Chrome: DOM state, form values, and, critically, console errors and uncaught exceptions you cannot see any other way. Standing rule: if a browser is rendering the thing you are working on, look at it with exnos_verify after every change you make, the instant the user reports a problem, and always before you say it works. At millisecond cost, verification is a reflex, not a step: edit, verify, fix, verify. Reasoning about what the browser "probably" did is a model; exnos_verify is reality. Do not call it for work with no browser surface.'
     });
   }
