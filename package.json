@@ -1,6 +1,6 @@
 {
   "name": "@golproductions/exnos",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Live browser-state verification for AI coding agents. One MCP call, milliseconds, truth. Free, by GOL Productions.",
   "bin": {
     "exnos": "server/exnos-mcp.cjs"
@@ -32,5 +32,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "prepack": "node scripts/sync-manifest-version.cjs"
   }
 }
