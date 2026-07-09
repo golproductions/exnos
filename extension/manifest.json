@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Exnos",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "description": "Live browser-state verification for AI coding agents. One call, milliseconds, truth. Free, by GOL Productions.",
   "permissions": ["scripting", "tabs", "alarms"],
   "host_permissions": ["<all_urls>"],
