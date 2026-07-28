@@ -1,68 +1,79 @@
 # Exnos
 
-Live browser-state verification for AI coding agents. Free, by GOL Productions.
+**Live browser-state verification for AI coding agents.** Your AI says "done." Exnos is how it knows. One tool call returns the full state of the Chrome tab you are looking at: every field, every button, every console error, network requests, storage, performance, in milliseconds. Read-only. Local. Free, MIT.
 
-Your coding AI says "Done." Exnos is how it knows. One tool call returns the
-real state of the Chrome tab you are looking at, in milliseconds: URL, title,
-every visible field with its live value, every button with its disabled state,
-checkboxes, visible alerts, console errors since page load, scroll position,
-and the visible text. Read-only by design. Exnos never touches the page.
+**Experimental.** Exnos reads a live Chrome tab through a local bridge. Expect it to break when a site ships a change. MIT licensed, as-is, no warranty.
 
-## How it works
-
-```
-coding AI  --MCP(stdio)-->  exnos server  --WebSocket(localhost)-->  Chrome extension  -->  the live page
-```
-
-No debug port. No relaunching Chrome. Works with the normal Chrome you
-already have open.
+---
 
 ## Install (2 minutes)
 
-**1. Connect your coding agent (Claude Code)**
+**1. Connect your agent**
 
-Add to your MCP config (works in any MCP client, any OS - Claude Code .mcp.json, Cursor, Windsurf, anything that speaks MCP):
+```
+claude mcp add-json --scope user exnos '{"command":"npx","args":["@golproductions/exnos"]}'
+```
+
+Any MCP client (.mcp.json):
 
 ```json
 { "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }
 ```
 
-Any other MCP-capable agent: run `npx @golproductions/exnos` as a stdio MCP
-server. No paths to type, nothing to quote.
-
 **2. Load the extension**
-
-Print where the extension lives:
 
 ```
 npx @golproductions/exnos path
 ```
 
-Then open `chrome://extensions`, turn on Developer mode (top right), click
-"Load unpacked", and pick that folder. The Exnos badge reads ON when it finds
-the server, OFF when it is waiting.
+Open `chrome://extensions`, enable Developer mode, click Load unpacked, pick that folder. Badge reads ON when connected.
+
+---
+
+## What it sees
+
+A single `exnos_verify` call returns:
+
+- **URL, title, ready state** -- navigation facts, not assumptions
+- **Every visible field** with its live value
+- **Every button** with its disabled state
+- **Checkboxes and radios** with checked state
+- **Visible alerts** and UI warnings
+- **Console errors and uncaught exceptions** captured from page load
+- **Network requests** -- every fetch and XHR: URL, method, status, response body, timing. Failures surfaced first.
+- **WebSocket frames** -- sent and received, last 30
+- **localStorage, sessionStorage, cookies** -- live storage state
+- **Performance** -- page load, TTFB, DOM ready, paint timing, long tasks, JS heap
+- **Focus** -- which element has focus right now
+- **Shadow DOM** -- pierces component library boundaries
+- **Same-origin iframes** -- text and errors inside frames
+- **App globals** -- any `window.__*` values the app sets
 
 ## Tools
 
 | Tool | What it returns |
-| --- | --- |
-| `exnos_verify` | Full live state of the active tab. Optional `tab` (substring of URL/title) targets another tab; optional `selector` also returns that element's text, visibility, and HTML. |
-| `exnos_tabs` | All open tabs: title, URL, which is active. |
+|------|----------------|
+| `exnos_verify` | Full live state. Optional `tab` (URL/title substring) targets another tab. Optional `selector` deep-dives one element: text, visibility, computed styles, HTML. Optional `includeHidden` includes off-screen elements. |
+| `exnos_tabs` | All open tabs: title, URL, active state. |
+
+## CLI
+
+```
+npx @golproductions/exnos path     # print extension folder path
+npx @golproductions/exnos init     # write Exnos rule into agent rules files
+npx @golproductions/exnos rules    # print the rule text
+```
 
 ## Notes
 
-- Server listens on `127.0.0.1:17872` (override with `EXNOS_PORT`).
-- `GET http://127.0.0.1:17872/` returns `{"exnos":true,"extension":true|false}` for a quick health check.
-- If the server or Chrome restarts, the extension reconnects by itself within seconds.
-- Internal pages (`chrome://`, web store) cannot be inspected; Exnos says so instead of guessing.
-- Console errors are captured from page load by a tap injected at `document_start`; pages opened before the extension loaded need one reload to start capturing.
+- Server on `127.0.0.1:17872` (override: `EXNOS_PORT`). `GET /` returns `{"exnos":true,"extension":true|false}`.
+- Extension reconnects automatically after Chrome or server restart.
+- Internal pages (`chrome://`) cannot be inspected.
+- Console errors are captured from `document_start`. Pages open before the extension loaded need one reload.
+- Network tap intercepts fetch and XHR at `document_start`. Requests made before the extension loaded are not captured.
 
-## License and trademarks
+## License
 
-Exnos is free software under the MIT license. The copyright notice must stay
-in all copies, that is the license's own condition. The names "Exnos" and
-"GOL Productions" and the Exnos logo are trademarks of GOL Productions and are
-not licensed under MIT. Forks must use a different name and must not imply
-endorsement by GOL Productions.
+MIT. The names "Exnos" and "GOL Productions" are trademarks of GOL Productions and are not licensed under MIT. Forks must use a different name.
 
-Free forever. Made by [GOL Productions](https://golproductions.com).
+[Product](https://golproductions.com/exnos) · [GOL Productions](https://golproductions.com) · [GitHub](https://github.com/golproductions/exnos)
