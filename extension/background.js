@@ -38,10 +38,18 @@ function connect() {
   };
 }
 
-// Reconnect insurance: the alarm re-fires even if the service worker was
-// suspended, and any firing while disconnected re-dials the server.
+// exnos-reconnect: re-establish WS if it dropped (every 30s)
+// exnos-keepalive: touch a Chrome API so the service worker is not suspended (every 20s)
 chrome.alarms.create('exnos-reconnect', { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener(connect);
+chrome.alarms.create('exnos-keepalive', { periodInMinutes: 1 / 3 }); // ~20s
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === 'exnos-keepalive') {
+    // Any real Chrome API call resets the service worker idle timer.
+    chrome.action.getBadgeText({}, () => {});
+    return;
+  }
+  connect();
+});
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
 connect();
@@ -73,7 +81,7 @@ async function handle(cmd, args) {
       target: { tabId: tab.id },
       world: 'MAIN',
       func: extractState,
-      args: [args.selector || null]
+      args: [args.selector || null, args.includeHidden || false]
     });
     const state = res && res[0] ? res[0].result : null;
     if (!state) throw new Error('State extraction returned nothing (page may still be loading)');
@@ -82,23 +90,72 @@ async function handle(cmd, args) {
   throw new Error('Unknown command: ' + cmd);
 }
 
-// Runs INSIDE the page. Morphed from GOL control/browser.cjs `state`:
-// every visible field, button, and checkbox with its live value and disabled
-// state, visible alerts, console errors from the tap, scroll position, text.
-function extractState(selector) {
-  const r = {};
-  r.url = location.href;
-  r.title = document.title;
-  r.readyState = document.readyState;
+// ─── extractState ─────────────────────────────────────────────────────────────
+// Runs INSIDE the page (MAIN world). Returns the full observable state of the
+// page: DOM, storage, network, performance, focus, computed visibility.
+function extractState(selector, includeHidden) {
   const vw = window.innerWidth, vh = window.innerHeight;
+  const MAX_TEXT = 3000;
+  const MAX_BODY = 500;
 
-  function vis(b) {
+  // ── helpers ──────────────────────────────────────────────────────────────────
+
+  function inViewport(b) {
     return b.width > 0 && b.height > 0 && b.right > 0 && b.bottom > 0 && b.left < vw && b.top < vh;
   }
 
-  r.fields = [...document.querySelectorAll('input,select,textarea')].map(e => {
-    const b = e.getBoundingClientRect();
-    if (!vis(b)) return null;
+  function isComputedVisible(el) {
+    const s = window.getComputedStyle(el);
+    return s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0;
+  }
+
+  function isVisible(el) {
+    const b = el.getBoundingClientRect();
+    return inViewport(b) && isComputedVisible(el);
+  }
+
+  // Collect elements from the entire DOM including shadow roots, piercing depth-first.
+  function queryAll(root, sel) {
+    const results = [];
+    function walk(node) {
+      try {
+        results.push(...Array.from(node.querySelectorAll(sel)));
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+        let cur = walker.nextNode();
+        while (cur) {
+          if (cur.shadowRoot) walk(cur.shadowRoot);
+          cur = walker.nextNode();
+        }
+      } catch {}
+    }
+    walk(root);
+    return results;
+  }
+
+  const r = {};
+
+  // ── identity ─────────────────────────────────────────────────────────────────
+  r.url        = location.href;
+  r.title      = document.title;
+  r.readyState = document.readyState;
+
+  // ── focus ────────────────────────────────────────────────────────────────────
+  try {
+    const f = document.activeElement;
+    if (f && f !== document.body) {
+      r.focus = {
+        tag: f.tagName.toLowerCase(),
+        id: f.id || null,
+        name: f.name || null,
+        type: f.type || null,
+        value: f.type === 'password' ? '***' : (f.value || null)
+      };
+    }
+  } catch {}
+
+  // ── fields ───────────────────────────────────────────────────────────────────
+  r.fields = queryAll(document, 'input,select,textarea').map(e => {
+    if (!includeHidden && !isVisible(e)) return null;
     return {
       tag: e.tagName.toLowerCase(),
       type: e.type || '',
@@ -107,25 +164,27 @@ function extractState(selector) {
       checked: !!e.checked,
       disabled: !!e.disabled,
       placeholder: e.placeholder || '',
+      visible: isComputedVisible(e),
       selector: e.id ? '#' + e.id : e.name ? e.tagName.toLowerCase() + '[name="' + e.name + '"]' : ''
     };
   }).filter(Boolean);
 
-  r.buttons = [...document.querySelectorAll('button,[role=button],input[type=submit],input[type=button]')].map(e => {
-    const b = e.getBoundingClientRect();
-    if (!vis(b)) return null;
+  // ── buttons ──────────────────────────────────────────────────────────────────
+  r.buttons = queryAll(document, 'button,[role=button],input[type=submit],input[type=button]').map(e => {
+    if (!includeHidden && !isVisible(e)) return null;
     const t = (e.textContent || e.value || '').trim().substring(0, 60);
     if (!t) return null;
     return {
       text: t,
       disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true',
+      visible: isComputedVisible(e),
       selector: e.id ? '#' + e.id : ''
     };
   }).filter(Boolean);
 
-  r.checkboxes = [...document.querySelectorAll('input[type=checkbox],input[type=radio]')].map(e => {
-    const b = e.getBoundingClientRect();
-    if (!vis(b)) return null;
+  // ── checkboxes ───────────────────────────────────────────────────────────────
+  r.checkboxes = queryAll(document, 'input[type=checkbox],input[type=radio]').map(e => {
+    if (!includeHidden && !isVisible(e)) return null;
     const label = (e.labels && e.labels[0] && e.labels[0].textContent.trim()) || e.name || e.id || '';
     return {
       label,
@@ -135,31 +194,159 @@ function extractState(selector) {
     };
   }).filter(Boolean);
 
-  r.alerts = [...document.querySelectorAll('[role=alert],[class*=error],[class*=success],[class*=warning],[class*=notice]')].map(e => {
-    const b = e.getBoundingClientRect();
-    if (!vis(b)) return null;
+  // ── alerts ───────────────────────────────────────────────────────────────────
+  r.alerts = queryAll(document, '[role=alert],[class*=error],[class*=success],[class*=warning],[class*=notice]').map(e => {
+    if (!isVisible(e)) return null;
     const t = e.textContent.trim();
     return t.length > 0 && t.length < 500 ? t : null;
   }).filter(Boolean);
 
+  // ── errors (from console-tap.js) ─────────────────────────────────────────────
   r.errors = (window.__exnos && window.__exnos.errors) ? window.__exnos.errors.slice(-20) : [];
 
+  // ── network requests (from network-tap.js) ───────────────────────────────────
+  r.requests = [];
+  if (window.__exnos && window.__exnos.requests) {
+    const reqs = window.__exnos.requests;
+    // surface failures first, then most recent successful, capped at 50
+    const failed  = reqs.filter(x => !x.ok || x.error).slice(-30);
+    const recent  = reqs.filter(x => x.ok && !x.error).slice(-20);
+    r.requests = [...failed, ...recent].sort((a, b) => a.t - b.t);
+  }
+
+  // ── WebSocket frames (from console-tap.js) ───────────────────────────────────
+  r.wsFrames = (window.__exnos && window.__exnos.wsFrames) ? window.__exnos.wsFrames.slice(-30) : [];
+
+  // ── storage ──────────────────────────────────────────────────────────────────
+  r.storage = {};
+  try {
+    const ls = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      let v = localStorage.getItem(k) || '';
+      ls[k] = v.substring(0, 200);
+    }
+    r.storage.local = ls;
+  } catch { r.storage.local = null; }
+
+  try {
+    const ss = {};
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      let v = sessionStorage.getItem(k) || '';
+      ss[k] = v.substring(0, 200);
+    }
+    r.storage.session = ss;
+  } catch { r.storage.session = null; }
+
+  try {
+    r.storage.cookies = document.cookie.substring(0, 1000) || null;
+  } catch { r.storage.cookies = null; }
+
+  // ── performance ──────────────────────────────────────────────────────────────
+  r.performance = {};
+  try {
+    const nav = performance.getEntriesByType('navigation')[0];
+    if (nav) {
+      r.performance.pageLoadMs   = Math.round(nav.loadEventEnd - nav.startTime);
+      r.performance.domReadyMs   = Math.round(nav.domContentLoadedEventEnd - nav.startTime);
+      r.performance.ttfbMs       = Math.round(nav.responseStart - nav.startTime);
+    }
+  } catch {}
+
+  try {
+    const paints = {};
+    for (const e of performance.getEntriesByType('paint')) paints[e.name] = Math.round(e.startTime);
+    if (Object.keys(paints).length) r.performance.paint = paints;
+  } catch {}
+
+  try {
+    const longTasks = performance.getEntriesByType('longtask').map(e => ({
+      ms: Math.round(e.duration), start: Math.round(e.startTime)
+    }));
+    if (longTasks.length) r.performance.longTasks = longTasks.slice(-10);
+  } catch {}
+
+  try {
+    const mem = performance.memory;
+    if (mem) r.performance.heapMB = Math.round(mem.usedJSHeapSize / 1048576);
+  } catch {}
+
+  // ── scroll ───────────────────────────────────────────────────────────────────
   const scrollH = document.documentElement.scrollHeight;
   const scrollTop = window.scrollY;
   r.scroll = { top: Math.round(scrollTop), viewH: vh, totalH: scrollH, atBottom: scrollTop + vh >= scrollH - 10 };
 
+  // ── iframes (same-origin) ────────────────────────────────────────────────────
+  try {
+    const frames = Array.from(document.querySelectorAll('iframe'));
+    const frameData = [];
+    for (const f of frames) {
+      try {
+        const doc = f.contentDocument;
+        if (!doc) continue;
+        frameData.push({
+          src: f.src || null,
+          title: doc.title || null,
+          text: (doc.body && doc.body.innerText || '').substring(0, 500),
+          errors: (f.contentWindow && f.contentWindow.__exnos && f.contentWindow.__exnos.errors) || []
+        });
+      } catch {} // cross-origin: skip
+    }
+    if (frameData.length) r.iframes = frameData;
+  } catch {}
+
+  // ── global app state (window.__*) ────────────────────────────────────────────
+  try {
+    const appGlobals = {};
+    for (const key of Object.keys(window)) {
+      if (!key.startsWith('__') || key === '__exnos') continue;
+      try {
+        const val = window[key];
+        if (val === null || typeof val === 'undefined') continue;
+        if (typeof val === 'function') continue;
+        const str = JSON.stringify(val);
+        if (str && str.length < 500) appGlobals[key] = val;
+      } catch {}
+    }
+    if (Object.keys(appGlobals).length) r.appGlobals = appGlobals;
+  } catch {}
+
+  // ── meta (CSP, viewport, og tags) ───────────────────────────────────────────
+  try {
+    const meta = {};
+    const viewport = document.querySelector('meta[name=viewport]');
+    if (viewport) meta.viewport = viewport.content;
+    const csp = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+    if (csp) meta.csp = csp.content.substring(0, 300);
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) meta.ogTitle = ogTitle.content;
+    if (Object.keys(meta).length) r.meta = meta;
+  } catch {}
+
+  // ── selector deep-dive ───────────────────────────────────────────────────────
   if (selector) {
-    const el = document.querySelector(selector);
     r.selector = selector;
-    r.selectorFound = !!el;
-    if (el) {
+    const results = queryAll(document, selector);
+    r.selectorFound = results.length > 0;
+    r.selectorCount = results.length;
+    if (results[0]) {
+      const el = results[0];
       const b = el.getBoundingClientRect();
-      r.selectorText = (el.innerText || el.textContent || el.value || '').substring(0, 2000);
-      r.selectorVisible = vis(b);
-      r.selectorHTML = el.outerHTML.substring(0, 1000);
+      r.selectorText    = (el.innerText || el.textContent || el.value || '').substring(0, 2000);
+      r.selectorVisible = isComputedVisible(el) && inViewport(b);
+      r.selectorHTML    = el.outerHTML.substring(0, 2000);
+      r.selectorStyles  = (() => {
+        try {
+          const s = window.getComputedStyle(el);
+          return { display: s.display, visibility: s.visibility, opacity: s.opacity, position: s.position };
+        } catch { return null; }
+      })();
     }
   }
 
-  r.text = document.body ? document.body.innerText.substring(0, 3000) : '';
+  // ── visible text ─────────────────────────────────────────────────────────────
+  r.text = document.body ? document.body.innerText.substring(0, MAX_TEXT) : '';
+
   return r;
 }

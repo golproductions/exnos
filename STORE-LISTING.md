@@ -3,9 +3,14 @@
 **Name:** Exnos
 
 **Summary (132 chars max):**
-Live browser-state verification for AI coding agents. One call, milliseconds, truth. Free, by GOL Productions.
+Live browser-state verification for AI coding agents. One call, milliseconds, truth. Free, MIT.
 
 **Description:**
+
+Free, MIT, offered as-is with no warranty and no support promise.
+Exnos reads a live Chrome tab through a local bridge, so it depends on browser
+behaviour and on the structure of pages nobody here controls. Expect it to break
+when a site ships a change. Do not make anything load-bearing depend on it.
 
 Your coding AI says "Done." Exnos is how it knows.
 

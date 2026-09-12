@@ -92,7 +92,7 @@ if (process.argv[2] === 'init') {
 
 const PORT = parseInt(process.env.EXNOS_PORT || '17872', 10);
 const WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
-const REQUEST_TIMEOUT = 5000;
+const REQUEST_TIMEOUT = 8000;
 
 // ---------- WebSocket server (extension side) ----------
 
@@ -213,7 +213,7 @@ server.on('upgrade', (req, socket) => {
 // keepalive: activity every 20s keeps the extension's service worker alive
 setInterval(() => {
   if (ext) { try { wsWrite(ext.socket, 1, JSON.stringify({ ping: true })); } catch {} }
-}, 20000);
+}, 10000);
 
 // When another exnos instance already owns the port, we proxy through it
 // instead of failing. Two agents, one Chrome, zero conflicts.
@@ -269,7 +269,7 @@ function askExtension(cmd, args) {
 const TOOLS = [
   {
     name: 'exnos_verify',
-    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos, free by GOL Productions.',
+    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos is EXPERIMENTAL and free (MIT, as-is): it reads a live Chrome tab through a local bridge, so it can break when a site ships a change. Treat a failed or empty read as "could not see", never as "the page is fine". By GOL Productions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -282,6 +282,22 @@ const TOOLS = [
     name: 'exnos_tabs',
     description: 'List all open Chrome tabs (title, URL, which is active). Use to find the right tab value for exnos_verify.',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'exnos_fetch_tabs',
+    description: 'Fetch live state from multiple Chrome tabs in one call. Pass an array of tab matchers (URL or title substrings) and get back the full exnos_verify state for each matched tab. Use when you need to read several tabs at once without calling exnos_verify repeatedly.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabs: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of substrings to match tabs by URL or title. Each string matches one tab.'
+        },
+        selector: { type: 'string', description: 'Optional CSS selector applied to every matched tab.' }
+      },
+      required: ['tabs']
+    }
   }
 ];
 
@@ -317,12 +333,35 @@ async function onRpc(msg) {
       let data;
       if (name === 'exnos_verify') data = await askExtension('state', { tab: args.tab, selector: args.selector });
       else if (name === 'exnos_tabs') data = await askExtension('tabs', {});
+      else if (name === 'exnos_fetch_tabs') {
+        const matchers = args.tabs || [];
+        if (!matchers.length) return replyErr(id, -32602, 'exnos_fetch_tabs requires a non-empty tabs array');
+        const results = {};
+        const errors = {};
+        await Promise.all(matchers.map(async (matcher) => {
+          try {
+            results[matcher] = await askExtension('state', { tab: matcher, selector: args.selector || null });
+          } catch (e) {
+            errors[matcher] = String((e && e.message) || e);
+          }
+        }));
+        data = { results, errors: Object.keys(errors).length ? errors : undefined };
+      }
       else return replyErr(id, -32602, 'Unknown tool: ' + name);
       let text = JSON.stringify(data, null, 2);
       // Make the payoff legible: console errors are the one thing the agent
       // cannot see any other way, so surface them above the JSON.
       if (name === 'exnos_verify' && data && Array.isArray(data.errors) && data.errors.length) {
         text = data.errors.length + ' console error(s) / uncaught exception(s) on this page. Read them before reasoning about the code:\n' + text;
+      }
+      if (name === 'exnos_fetch_tabs' && data && data.results) {
+        let totalErrors = 0;
+        for (const tab of Object.values(data.results)) {
+          if (tab && Array.isArray(tab.errors)) totalErrors += tab.errors.length;
+        }
+        if (totalErrors) {
+          text = totalErrors + ' console error(s) across ' + Object.keys(data.results).length + ' tab(s). Read them before reasoning about the code:\n' + text;
+        }
       }
       return reply(id, { content: [{ type: 'text', text }] });
     } catch (e) {
@@ -362,3 +401,5 @@ server.on('error', (e) => {
 server.listen(PORT, '127.0.0.1', () => {
   process.stderr.write('exnos by GOL Productions: listening for extension on ws://127.0.0.1:' + PORT + '/extension\n');
 });
+
+
