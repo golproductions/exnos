@@ -1,6 +1,6 @@
 # Exnos
 
-**Live browser-state verification for AI coding agents.** Your AI says "done." Exnos is how it knows. One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance -- in milliseconds. Read-only. Local. Free, MIT. Slightly experimental -- expect it to break when a site ships a change.
+**Live browser-state verification for AI coding agents.** Your AI says "done." Exnos is how it knows. One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance -- in milliseconds. Read-only. Local. Free and open source. By [GOL Productions](https://golproductions.com).
 
 ---
 
@@ -81,6 +81,10 @@ Point it at what you're debugging, not at your banking tab.
 
 ## License
 
-MIT. The names "Exnos" and "GOL Productions" are trademarks of GOL Productions and are not licensed under MIT. Forks must use a different name.
+Free and open source. See [LICENSE](./LICENSE). The names "Exnos" and "GOL Productions" are trademarks of GOL Productions. Forks must use a different name.
 
-[Product](https://golproductions.com/exnos) · [GOL Productions](https://golproductions.com) · [GitHub](https://github.com/golproductions/exnos)
+## GOL Productions
+
+Exnos is part of the [GOL Productions](https://golproductions.com) toolchain. See also [Check](https://golproductions.com/check), the anti-hallucination layer for Claude Code, and [Envie](https://golproductions.com/envie), verified AI video.
+
+[Product page](https://golproductions.com/exnos) · [GOL Productions](https://golproductions.com) · [GitHub](https://github.com/golproductions/exnos)

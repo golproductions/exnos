@@ -1,12 +1,12 @@
 {
   "name": "@golproductions/exnos",
-  "version": "0.5.0",
-  "description": "Live browser-state verification for AI coding agents. One MCP call, milliseconds, truth. Slightly experimental. Free, MIT, no warranty. By GOL Productions.",
+  "version": "0.5.1",
+  "description": "Live browser-state verification for AI coding agents. One MCP call, milliseconds, truth. Free and open source. By GOL Productions.",
   "bin": {
     "exnos": "server/exnos-mcp.cjs"
   },
   "main": "server/exnos-mcp.cjs",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "files": [
     "server/",
     "extension/",
