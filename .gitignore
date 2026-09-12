@@ -3,3 +3,7 @@ node_modules/
 *.tgz
 dist/
 .npmrc
+
+# Internal: Chrome Web Store submission working docs, not part of the product.
+STORE-LISTING.md
+store-screenshot-*.png

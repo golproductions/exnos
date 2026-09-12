@@ -1,6 +1,6 @@
 # Exnos
 
-**Live browser-state verification for AI coding agents.** Your AI says "done." Exnos is how it knows. One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance -- in milliseconds. Read-only. Local. Free, MIT. Experimental -- expect it to break when a site ships a change.
+**Live browser-state verification for AI coding agents.** Your AI says "done." Exnos is how it knows. One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance -- in milliseconds. Read-only. Local. Free, MIT. Slightly experimental -- expect it to break when a site ships a change.
 
 ---
 
@@ -53,6 +53,7 @@ A single `exnos_verify` call returns:
 |------|----------------|
 | `exnos_verify` | Full live state. Optional `tab` (URL/title substring) targets another tab. Optional `selector` deep-dives one element: text, visibility, computed styles, HTML. Optional `includeHidden` includes off-screen elements. |
 | `exnos_tabs` | All open tabs: title, URL, active state. |
+| `exnos_fetch_tabs` | Full live state from several tabs in one call. Pass `tabs` as an array of URL/title substrings; optional `selector` applies to each. |
 
 ## CLI
 
