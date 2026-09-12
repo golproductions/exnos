@@ -22,42 +22,146 @@ if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
   const path = require('path');
   const { execSync } = require('child_process');
   const extPath = path.join(__dirname, '..', 'extension');
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  const mcpEntry = { command: 'npx', args: ['@golproductions/exnos'] };
+  let registered = 0;
 
   console.log('\n  exnos setup\n  By GOL Productions (https://golproductions.com)\n');
 
-  // 1. Detect and configure MCP for known agents
-  const agents = [];
-  try { execSync('claude --version', { stdio: 'ignore' }); agents.push('claude'); } catch {}
-  // could add cursor, windsurf detection here later
-
-  if (agents.includes('claude')) {
-    const mcpJson = JSON.stringify({"command":"npx","args":["@golproductions/exnos"]});
-    const escaped = process.platform === 'win32' ? '"' + mcpJson.replace(/"/g, '\\"') + '"' : "'" + mcpJson + "'";
-    try {
-      execSync('claude mcp add-json --scope user exnos ' + escaped, { stdio: 'inherit' });
-      console.log('  ✓ Claude Code: MCP server registered');
-    } catch {
-      console.log('  · Claude Code: already registered or manual config needed');
-      console.log('    claude mcp add-json --scope user exnos \'' + mcpJson + '\'');
+  // Sync extension manifest version with package.json so the Chrome badge
+  // always shows the right number, even when loaded from source.
+  try {
+    const pkgVer = require('../package.json').version;
+    const mfPath = path.join(extPath, 'manifest.json');
+    if (fs.existsSync(mfPath)) {
+      const mfRaw = fs.readFileSync(mfPath, 'utf8');
+      const mfVer = JSON.parse(mfRaw).version;
+      if (mfVer !== pkgVer) {
+        fs.writeFileSync(mfPath, mfRaw.replace(/("version"\s*:\s*")[^"]*(")/, '$1' + pkgVer + '$2'));
+      }
     }
-  } else {
-    console.log('  · No agent CLI detected. Add to your MCP config:');
-    console.log('    { "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }');
+  } catch {}
+
+  // -- Helper: merge an MCP server entry into a JSON config file ----------
+  function mergeIntoJsonConfig(filePath, serverName, entry) {
+    let config = {};
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      try { config = JSON.parse(raw); } catch {
+        // File exists but is not valid JSON. Do not overwrite it.
+        throw new Error('existing config is not valid JSON, skipping to avoid data loss');
+      }
+    }
+    if (!config.mcpServers) config.mcpServers = {};
+    const existing = config.mcpServers[serverName];
+    if (existing && JSON.stringify(existing) === JSON.stringify(entry)) return false;
+    config.mcpServers[serverName] = entry;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    return true;
   }
 
-  // 2. Chrome extension
+  // -- Claude Code --------------------------------------------------------
+  let hasClaude = false;
+  try { execSync('claude --version', { stdio: 'pipe', windowsHide: true }); hasClaude = true; } catch {}
+  if (hasClaude) {
+    const config = JSON.stringify(mcpEntry);
+    const escaped = process.platform === 'win32' ? config.replace(/"/g, '\\"') : config.replace(/'/g, "'\\''");
+    const addCmd = process.platform === 'win32'
+      ? `claude mcp add-json --scope user exnos "${escaped}"`
+      : `claude mcp add-json --scope user exnos '${escaped}'`;
+    try {
+      execSync(addCmd, { stdio: 'pipe', windowsHide: true });
+      console.log('  Claude Code: registered.');
+      registered++;
+    } catch (e) {
+      const msg = (e.message || e) + ' ' + (e.stderr || '');
+      if (/already exists/i.test(msg)) {
+        console.log('  Claude Code: already registered.');
+        registered++;
+      } else {
+        console.error('  Claude Code: register failed (' + (e.message || e) + ')');
+      }
+    }
+    // Pre-authorise tools so auto-mode does not block them.
+    const TOOLS = [
+      'mcp__exnos__exnos_verify',
+      'mcp__exnos__exnos_tabs',
+      'mcp__exnos__exnos_fetch_tabs'
+    ];
+    const settingsPath = path.join(homeDir, '.claude', 'settings.local.json');
+    try {
+      let settings = {};
+      if (fs.existsSync(settingsPath)) {
+        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      }
+      if (!settings.permissions) settings.permissions = {};
+      if (!Array.isArray(settings.permissions.allow)) settings.permissions.allow = [];
+      let added = 0;
+      for (const t of TOOLS) {
+        if (!settings.permissions.allow.includes(t)) {
+          settings.permissions.allow.push(t);
+          added++;
+        }
+      }
+      if (added > 0) {
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+        console.log('  Claude Code: ' + added + ' tool permissions added.');
+      }
+    } catch (e) {
+      console.error('  Claude Code: could not update permissions (' + (e.message || e) + ')');
+    }
+  }
+
+  // -- Cursor (only if the user has it) -----------------------------------
+  const cursorDir = path.join(homeDir, '.cursor');
+  if (fs.existsSync(cursorDir)) {
+    try {
+      if (mergeIntoJsonConfig(path.join(cursorDir, 'mcp.json'), 'exnos', mcpEntry)) {
+        console.log('  Cursor: registered.');
+      } else {
+        console.log('  Cursor: already registered.');
+      }
+      registered++;
+    } catch (e) {
+      console.error('  Cursor: could not write config (' + (e.message || e) + ')');
+    }
+  }
+
+  // -- Windsurf (only if the user has it) ---------------------------------
+  const windsurfDir = path.join(homeDir, '.codeium', 'windsurf');
+  if (fs.existsSync(windsurfDir)) {
+    try {
+      if (mergeIntoJsonConfig(path.join(windsurfDir, 'mcp_config.json'), 'exnos', mcpEntry)) {
+        console.log('  Windsurf: registered.');
+      } else {
+        console.log('  Windsurf: already registered.');
+      }
+      registered++;
+    } catch (e) {
+      console.error('  Windsurf: could not write config (' + (e.message || e) + ')');
+    }
+  }
+
+  // -- Summary if nothing detected ----------------------------------------
+  if (registered === 0) {
+    console.log('  No MCP clients detected. Add to your MCP config:');
+    console.log('  ' + JSON.stringify({ mcpServers: { exnos: mcpEntry } }));
+  }
+
+  // -- Chrome extension ---------------------------------------------------
   console.log('\n  Extension folder:\n  ' + extPath);
   console.log('\n  Open chrome://extensions, enable Developer mode, click "Load unpacked",');
   console.log('  and pick the folder above. Badge reads ON when connected.');
 
-  // Try to open the folder in the file manager
   try {
     if (process.platform === 'win32') execSync('explorer "' + extPath + '"', { stdio: 'ignore' });
     else if (process.platform === 'darwin') execSync('open "' + extPath + '"', { stdio: 'ignore' });
     else execSync('xdg-open "' + extPath + '"', { stdio: 'ignore' });
   } catch {}
 
-  console.log('\n  Done. Start your agent and verify:\n    exnos_verify\n');
+  console.log('\n  Done. Restart your editor, then verify:\n    exnos_verify\n');
   process.exit(0);
 }
 

@@ -10,21 +10,21 @@
 npx @golproductions/exnos setup
 ```
 
-That's it. It registers the MCP server, opens the extension folder, and tells you the one manual step (load it in Chrome). Takes 30 seconds.
+That's it. It detects Claude Code, Cursor, and Windsurf and registers with every one it finds, opens the extension folder, and tells you the one manual step (load it in Chrome). Takes 30 seconds.
 
 <details>
 <summary>Manual install</summary>
 
 **1. Connect your agent**
 
-Claude Code:
-```
-claude mcp add-json --scope user exnos '{"command":"npx","args":["@golproductions/exnos"]}'
-```
-
-Any MCP client:
+Add this to any MCP client's config:
 ```json
 { "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }
+```
+
+Or for Claude Code specifically:
+```
+claude mcp add-json --scope user exnos '{"command":"npx","args":["@golproductions/exnos"]}'
 ```
 
 **2. Load the extension**
