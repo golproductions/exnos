@@ -70,6 +70,14 @@ npx @golproductions/exnos rules    # print the rule text
 - Console errors are captured from `document_start`. Pages open before the extension loaded need one reload.
 - Network tap intercepts fetch and XHR at `document_start`. Requests made before the extension loaded are not captured.
 
+## Privacy
+
+Exnos sends nothing to GOL Productions. There is no account, no telemetry, no licence check, no server of ours involved. Traffic goes from the extension to `127.0.0.1` and no further.
+
+Worth knowing where it goes next, though: Exnos hands browser state to your MCP client, and that client is usually an AI agent that forwards what it receives to its model provider. Cookies, storage, and network response bodies are in scope for `exnos_verify`, and those can carry session tokens. So while nothing reaches us, **what you expose to Exnos can leave your machine through your AI tool**, under that provider's terms.
+
+Point it at what you're debugging, not at your banking tab.
+
 ## License
 
 MIT. The names "Exnos" and "GOL Productions" are trademarks of GOL Productions and are not licensed under MIT. Forks must use a different name.
