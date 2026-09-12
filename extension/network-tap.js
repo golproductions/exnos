@@ -1,4 +1,4 @@
-// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). MIT license.
+// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). See LICENSE.
 // Exnos network tap. Runs in MAIN world at document_start, intercepts every
 // fetch and XHR, and stores the result in window.__exnos.requests so
 // exnos_verify can surface failed API calls and response bodies.

@@ -1,4 +1,4 @@
-// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). MIT license.
+// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). See LICENSE.
 // Exnos console + WebSocket tap. Runs in MAIN world at document_start.
 // Captures console.error/warn, uncaught exceptions, unhandled rejections,
 // and WebSocket frames (both directions) into window.__exnos.

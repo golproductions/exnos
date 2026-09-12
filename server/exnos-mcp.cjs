@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). MIT license.
+// Exnos. Copyright (c) 2026 GOL Productions (https://golproductions.com). See LICENSE.
 // Exnos MCP server. Zero dependencies.
 // stdio side: newline-delimited JSON-RPC (MCP) for the coding agent.
 // socket side: a tiny WebSocket server on 127.0.0.1 that the Exnos Chrome
@@ -14,6 +14,50 @@ const crypto = require('crypto');
 // Load-unpack it straight from the npm install.
 if (process.argv[2] === 'path') {
   console.log(require('path').join(__dirname, '..', 'extension'));
+  process.exit(0);
+}
+
+if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
+  const fs = require('fs');
+  const path = require('path');
+  const { execSync } = require('child_process');
+  const extPath = path.join(__dirname, '..', 'extension');
+
+  console.log('\n  exnos setup\n  By GOL Productions (https://golproductions.com)\n');
+
+  // 1. Detect and configure MCP for known agents
+  const agents = [];
+  try { execSync('claude --version', { stdio: 'ignore' }); agents.push('claude'); } catch {}
+  // could add cursor, windsurf detection here later
+
+  if (agents.includes('claude')) {
+    const mcpJson = JSON.stringify({"command":"npx","args":["@golproductions/exnos"]});
+    const escaped = process.platform === 'win32' ? '"' + mcpJson.replace(/"/g, '\\"') + '"' : "'" + mcpJson + "'";
+    try {
+      execSync('claude mcp add-json --scope user exnos ' + escaped, { stdio: 'inherit' });
+      console.log('  ✓ Claude Code: MCP server registered');
+    } catch {
+      console.log('  · Claude Code: already registered or manual config needed');
+      console.log('    claude mcp add-json --scope user exnos \'' + mcpJson + '\'');
+    }
+  } else {
+    console.log('  · No agent CLI detected. Add to your MCP config:');
+    console.log('    { "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }');
+  }
+
+  // 2. Chrome extension
+  console.log('\n  Extension folder:\n  ' + extPath);
+  console.log('\n  Open chrome://extensions, enable Developer mode, click "Load unpacked",');
+  console.log('  and pick the folder above. Badge reads ON when connected.');
+
+  // Try to open the folder in the file manager
+  try {
+    if (process.platform === 'win32') execSync('explorer "' + extPath + '"', { stdio: 'ignore' });
+    else if (process.platform === 'darwin') execSync('open "' + extPath + '"', { stdio: 'ignore' });
+    else execSync('xdg-open "' + extPath + '"', { stdio: 'ignore' });
+  } catch {}
+
+  console.log('\n  Done. Start your agent and verify:\n    exnos_verify\n');
   process.exit(0);
 }
 
@@ -189,6 +233,8 @@ server.on('upgrade', (req, socket) => {
   if (ext) { try { ext.socket.destroy(); } catch {} }
   const state = { socket, buf: Buffer.alloc(0), fragments: [] };
   ext = state;
+  // Announce server version so the extension can detect mismatches.
+  try { wsWrite(socket, 1, JSON.stringify({ version: require('../package.json').version })); } catch {}
   socket.on('data', chunk => {
     state.buf = Buffer.concat([state.buf, chunk]);
     while (true) {
@@ -269,7 +315,7 @@ function askExtension(cmd, args) {
 const TOOLS = [
   {
     name: 'exnos_verify',
-    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos is slightly experimental and free (MIT, as-is): it reads a live Chrome tab through a local bridge, so it can break when a site ships a change. Treat a failed or empty read as "could not see", never as "the page is fine". By GOL Productions.',
+    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos is free and open source: it reads a live Chrome tab through a local bridge, so it can break when a site ships a change. Treat a failed or empty read as "could not see", never as "the page is fine". By GOL Productions.',
     inputSchema: {
       type: 'object',
       properties: {

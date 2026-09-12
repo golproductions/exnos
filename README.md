@@ -4,16 +4,25 @@
 
 ---
 
-## Install (2 minutes)
+## Install
+
+```
+npx @golproductions/exnos setup
+```
+
+That's it. It registers the MCP server, opens the extension folder, and tells you the one manual step (load it in Chrome). Takes 30 seconds.
+
+<details>
+<summary>Manual install</summary>
 
 **1. Connect your agent**
 
+Claude Code:
 ```
 claude mcp add-json --scope user exnos '{"command":"npx","args":["@golproductions/exnos"]}'
 ```
 
-Any MCP client (.mcp.json):
-
+Any MCP client:
 ```json
 { "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }
 ```
@@ -25,6 +34,7 @@ npx @golproductions/exnos path
 ```
 
 Open `chrome://extensions`, enable Developer mode, click Load unpacked, pick that folder. Badge reads ON when connected.
+</details>
 
 ---
 
@@ -58,6 +68,7 @@ A single `exnos_verify` call returns:
 ## CLI
 
 ```
+npx @golproductions/exnos setup    # configure agent + extension in one step
 npx @golproductions/exnos path     # print extension folder path
 npx @golproductions/exnos init     # write Exnos rule into agent rules files
 npx @golproductions/exnos rules    # print the rule text
@@ -70,6 +81,7 @@ npx @golproductions/exnos rules    # print the rule text
 - Internal pages (`chrome://`) cannot be inspected.
 - Console errors are captured from `document_start`. Pages open before the extension loaded need one reload.
 - Network tap intercepts fetch and XHR at `document_start`. Requests made before the extension loaded are not captured.
+- Two agents can share one Chrome: if port 17872 is already taken by another Exnos instance, a second instance proxies through the first automatically.
 
 ## Privacy
 
