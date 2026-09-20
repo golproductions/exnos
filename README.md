@@ -1,6 +1,38 @@
 # Exnos
 
-**Live browser-state verification for AI coding agents.** Your AI says "done." Exnos is how it knows. One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance -- in milliseconds. Read-only. Local. Free and open source. By [GOL Productions](https://golproductions.com).
+**Live browser-state verification for AI coding agents.**
+
+Your AI says "done." Exnos is how it knows.
+
+One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance—in milliseconds. Read-only. Local. Free and open source.
+
+By [GOL Productions](https://golproductions.com).
+
+---
+
+## The Problem
+
+AI coding agents edit files and hope for the best. When something breaks:
+
+```
+You: "The button doesn't work"
+AI:  "Can you check the console for errors?"
+You: "It says TypeError something something"
+AI:  "Can you paste the full error?"
+```
+
+Back and forth. Slow. Frustrating.
+
+## The Solution
+
+```
+You: "The button doesn't work"
+AI:  [calls exnos_verify]
+AI:  "Console shows 'TypeError: handleClick is not defined' at line 47.
+      The handler was renamed to onClick. Fixing now."
+```
+
+Exnos gives your AI eyes. It sees what you see—instantly.
 
 ---
 
@@ -10,21 +42,20 @@
 npx @golproductions/exnos setup
 ```
 
-That's it. It detects Claude Code, Cursor, and Windsurf and registers with every one it finds, opens the extension folder, and tells you the one manual step (load it in Chrome). Takes 30 seconds.
+That's it. Detects Claude Code, Cursor, and Windsurf—registers with all of them, opens the extension folder, tells you to load it in Chrome. Takes 30 seconds.
 
 <details>
 <summary>Manual install</summary>
 
 **1. Connect your agent**
 
-Add this to any MCP client's config:
 ```json
 { "mcpServers": { "exnos": { "command": "npx", "args": ["@golproductions/exnos"] } } }
 ```
 
-Or for Claude Code specifically:
+Or for Claude Code:
 ```
-claude mcp add-json --scope user exnos '{"command":"npx","args":["@golproductions/exnos"]}'
+claude mcp add exnos -- npx @golproductions/exnos
 ```
 
 **2. Load the extension**
@@ -33,70 +64,135 @@ claude mcp add-json --scope user exnos '{"command":"npx","args":["@golproduction
 npx @golproductions/exnos path
 ```
 
-Open `chrome://extensions`, enable Developer mode, click Load unpacked, pick that folder. Badge reads ON when connected.
+Open `chrome://extensions` → Developer mode → **Load unpacked** → select that folder.
+
+Badge reads **ON** when connected.
+
 </details>
 
 ---
 
-## What it sees
+## What It Sees
 
-A single `exnos_verify` call returns:
+| Category | Data |
+|----------|------|
+| **Identity** | URL, title, ready state |
+| **Forms** | Every visible field with live value (passwords masked) |
+| **Buttons** | Text and disabled state |
+| **Checkboxes** | Checked state with labels |
+| **Alerts** | Visible error/success/warning UI |
+| **Console** | Errors and uncaught exceptions since page load |
+| **Network** | Every fetch/XHR: URL, status, response body. Failures first. |
+| **WebSocket** | Sent and received frames |
+| **Storage** | localStorage, sessionStorage, cookies |
+| **Performance** | Page load, TTFB, paint timing, long tasks, heap |
+| **Focus** | Which element has focus |
+| **Shadow DOM** | Pierces web component boundaries |
+| **Iframes** | Same-origin content + cross-origin count |
+| **App State** | `window.__*` values |
+| **Screenshot** | Optional PNG capture |
 
-- **URL, title, ready state** -- navigation facts, not assumptions
-- **Every visible field** with its live value
-- **Every button** with its disabled state
-- **Checkboxes and radios** with checked state
-- **Visible alerts** and UI warnings
-- **Console errors and uncaught exceptions** captured from page load
-- **Network requests** -- every fetch and XHR: URL, method, status, response body, timing. Failures surfaced first.
-- **WebSocket frames** -- sent and received, last 30
-- **localStorage, sessionStorage, cookies** -- live storage state
-- **Performance** -- page load, TTFB, DOM ready, paint timing, long tasks, JS heap
-- **Focus** -- which element has focus right now
-- **Shadow DOM** -- pierces component library boundaries
-- **Same-origin iframes** -- text and errors inside frames
-- **App globals** -- any `window.__*` values the app sets
+---
 
 ## Tools
 
-| Tool | What it returns |
-|------|----------------|
-| `exnos_verify` | Full live state. Optional `tab` (URL/title substring) targets another tab. Optional `selector` deep-dives one element: text, visibility, computed styles, HTML. Optional `includeHidden` includes off-screen elements. |
-| `exnos_tabs` | All open tabs: title, URL, active state. |
-| `exnos_fetch_tabs` | Full live state from several tabs in one call. Pass `tabs` as an array of URL/title substrings; optional `selector` applies to each. |
+| Tool | Purpose |
+|------|---------|
+| `exnos_verify` | Full live state. The main tool. |
+| `exnos_tabs` | List all open tabs. |
+| `exnos_screenshot` | PNG screenshot of visible tab. |
+| `exnos_fetch_tabs` | Verify multiple tabs at once. |
+
+### exnos_verify parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `tab` | Match tab by URL or title substring. Default: active tab. |
+| `selector` | CSS selector for deep-dive: text, bounds, computed styles, HTML. |
+| `includeHidden` | Include off-screen elements. Default: false. |
+| `screenshot` | Also capture PNG. Returns data URL. |
+
+### Selector deep-dive
+
+Pass `selector` to get:
+- `selectorText` — inner text content
+- `selectorVisible` — actually visible?
+- `selectorBounds` — `{top, left, width, height}`
+- `selectorHTML` — outer HTML
+- `selectorStyles` — computed: color, backgroundColor, fontSize, fontWeight, fontFamily, padding, margin, border, zIndex, overflow, transform, transition
+
+---
 
 ## CLI
 
 ```
-npx @golproductions/exnos setup    # configure agent + extension in one step
-npx @golproductions/exnos path     # print extension folder path
-npx @golproductions/exnos init     # write Exnos rule into agent rules files
-npx @golproductions/exnos rules    # print the rule text
+npx @golproductions/exnos setup    # configure everything
+npx @golproductions/exnos path     # extension folder path
+npx @golproductions/exnos init     # write rules to agent config
+npx @golproductions/exnos rules    # print rule text
 ```
 
-## Notes
+---
 
-- Server on `127.0.0.1:17872` (override: `EXNOS_PORT`). `GET /` returns `{"exnos":true,"extension":true|false}`.
-- Extension reconnects automatically after Chrome or server restart.
-- Internal pages (`chrome://`) cannot be inspected.
-- Console errors are captured from `document_start`. Pages open before the extension loaded need one reload.
-- Network tap intercepts fetch and XHR at `document_start`. Requests made before the extension loaded are not captured.
-- Two agents can share one Chrome: if port 17872 is already taken by another Exnos instance, a second instance proxies through the first automatically.
+## Architecture
+
+```
+┌─────────────┐     MCP/stdio      ┌─────────────┐    WebSocket     ┌─────────────┐
+│  AI Agent   │ ◄────────────────► │ MCP Server  │ ◄──────────────► │  Extension  │
+│             │                    │ :17872      │                  │             │
+└─────────────┘                    └─────────────┘                  └──────┬──────┘
+                                                                           │
+                                                                    Chrome APIs
+                                                                           │
+                                                                    ┌──────▼──────┐
+                                                                    │   Your Tab  │
+                                                                    └─────────────┘
+```
+
+---
+
+## Smart Features
+
+- **State change detection**: Reports `changed: true/false` on repeated calls
+- **Proxy mode**: Multiple agents share one extension connection
+- **Auto-reconnect**: Extension reconnects after Chrome/server restart
+- **Failures first**: Network errors surface before successful requests
+- **Cross-origin awareness**: Reports iframe count even when content isn't readable
+
+---
 
 ## Privacy
 
-Exnos sends nothing to GOL Productions. There is no account, no telemetry, no licence check, no server of ours involved. Traffic goes from the extension to `127.0.0.1` and no further.
+Exnos sends nothing to GOL Productions. No account, no telemetry, no server. Traffic goes from extension to `127.0.0.1` only.
 
-Worth knowing where it goes next, though: Exnos hands browser state to your MCP client, and that client is usually an AI agent that forwards what it receives to its model provider. Cookies, storage, and network response bodies are in scope for `exnos_verify`, and those can carry session tokens. So while nothing reaches us, **what you expose to Exnos can leave your machine through your AI tool**, under that provider's terms.
+**However**: What Exnos returns goes to your AI agent, which forwards it to its model provider. Cookies, storage, and response bodies can carry session tokens.
 
-Point it at what you're debugging, not at your banking tab.
+Point it at what you're debugging, not your banking tab.
+
+---
+
+## Notes
+
+- Server: `127.0.0.1:17872` (override: `EXNOS_PORT`)
+- `GET /` returns `{"exnos":true,"extension":true|false}`
+- Console/network taps run from `document_start`—pages open before extension load need one refresh
+- Internal pages (`chrome://`) cannot be inspected
+
+---
 
 ## License
 
-Free and open source. See [LICENSE](./LICENSE). The names "Exnos" and "GOL Productions" are trademarks of GOL Productions. Forks must use a different name.
+MIT. Free and open source. See [LICENSE](./LICENSE).
+
+"Exnos" and "GOL Productions" are trademarks. Forks must use a different name.
+
+---
 
 ## GOL Productions
 
-Exnos is part of the [GOL Productions](https://golproductions.com) toolchain. See also [Check](https://golproductions.com/check), the anti-hallucination layer for Claude Code, and [Envie](https://golproductions.com/envie), verified AI video.
+Exnos is part of the [GOL Productions](https://golproductions.com) toolchain.
 
-[Product page](https://golproductions.com/exnos) · [GOL Productions](https://golproductions.com) · [GitHub](https://github.com/golproductions/exnos)
+- **[Check](https://golproductions.com/check)** — Anti-hallucination layer for Claude Code
+- **[Envie](https://golproductions.com/envie)** — AI video rendering with verification
+
+[Product page](https://golproductions.com/exnos) · [GitHub](https://github.com/golproductions/exnos)

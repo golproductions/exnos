@@ -6,6 +6,7 @@
 
 const PORT = 17872;
 let ws = null;
+let lastState = new Map(); // tabId -> hash of last state (for diff detection)
 
 function setBadge(on) {
   chrome.action.setBadgeText({ text: on ? 'ON' : 'OFF' });
@@ -25,6 +26,9 @@ function connect() {
     setTimeout(connect, 2000);
   };
   sock.onmessage = async (ev) => {
+    // Any message wakes the service worker - reconnect if needed
+    if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.ping) { try { sock.send(JSON.stringify({ pong: true })); } catch {} return; }
@@ -66,11 +70,42 @@ async function pickTab(filter) {
   return active || all.find(t => t.active) || all[0];
 }
 
+// Simple hash for state comparison
+function hashState(state) {
+  const key = JSON.stringify({
+    url: state.url,
+    errors: state.errors?.length || 0,
+    fields: state.fields?.map(f => f.value).join('|'),
+    text: state.text?.substring(0, 500)
+  });
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  return h;
+}
+
 async function handle(cmd, args) {
   if (cmd === 'tabs') {
     const all = await chrome.tabs.query({});
     return all.map(t => ({ title: t.title || '', url: t.url || '', active: !!t.active }));
   }
+
+  if (cmd === 'screenshot') {
+    const tab = await pickTab(args.tab);
+    if (!tab) throw new Error('No tabs open');
+    try {
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      return {
+        url: tab.url,
+        title: tab.title,
+        screenshot: dataUrl,
+        width: tab.width,
+        height: tab.height
+      };
+    } catch (e) {
+      throw new Error('Screenshot failed: ' + e.message);
+    }
+  }
+
   if (cmd === 'state') {
     const tab = await pickTab(args.tab);
     if (!tab) throw new Error('No tabs open');
@@ -85,6 +120,24 @@ async function handle(cmd, args) {
     });
     const state = res && res[0] ? res[0].result : null;
     if (!state) throw new Error('State extraction returned nothing (page may still be loading)');
+
+    // Compute diff from last state
+    const currentHash = hashState(state);
+    const prevHash = lastState.get(tab.id);
+    if (prevHash !== undefined) {
+      state.changed = currentHash !== prevHash;
+    }
+    lastState.set(tab.id, currentHash);
+
+    // Add screenshot if requested
+    if (args.screenshot) {
+      try {
+        state.screenshot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      } catch (e) {
+        state.screenshotError = e.message;
+      }
+    }
+
     return state;
   }
   throw new Error('Unknown command: ' + cmd);
@@ -277,23 +330,30 @@ function extractState(selector, includeHidden) {
   const scrollTop = window.scrollY;
   r.scroll = { top: Math.round(scrollTop), viewH: vh, totalH: scrollH, atBottom: scrollTop + vh >= scrollH - 10 };
 
-  // ── iframes (same-origin) ────────────────────────────────────────────────────
+  // ── iframes (same-origin + cross-origin count) ───────────────────────────────
   try {
     const frames = Array.from(document.querySelectorAll('iframe'));
     const frameData = [];
+    let crossOriginCount = 0;
     for (const f of frames) {
       try {
         const doc = f.contentDocument;
-        if (!doc) continue;
+        if (!doc) {
+          crossOriginCount++;
+          continue;
+        }
         frameData.push({
           src: f.src || null,
           title: doc.title || null,
           text: (doc.body && doc.body.innerText || '').substring(0, 500),
           errors: (f.contentWindow && f.contentWindow.__exnos && f.contentWindow.__exnos.errors) || []
         });
-      } catch {} // cross-origin: skip
+      } catch {
+        crossOriginCount++;
+      }
     }
     if (frameData.length) r.iframes = frameData;
+    if (crossOriginCount > 0) r.crossOriginIframes = crossOriginCount + ' cross-origin iframe(s) not readable';
   } catch {}
 
   // ── global app state (window.__*) ────────────────────────────────────────────
@@ -324,7 +384,7 @@ function extractState(selector, includeHidden) {
     if (Object.keys(meta).length) r.meta = meta;
   } catch {}
 
-  // ── selector deep-dive ───────────────────────────────────────────────────────
+  // ── selector deep-dive with full computed styles ─────────────────────────────
   if (selector) {
     r.selector = selector;
     const results = queryAll(document, selector);
@@ -336,10 +396,28 @@ function extractState(selector, includeHidden) {
       r.selectorText    = (el.innerText || el.textContent || el.value || '').substring(0, 2000);
       r.selectorVisible = isComputedVisible(el) && inViewport(b);
       r.selectorHTML    = el.outerHTML.substring(0, 2000);
+      r.selectorBounds  = { top: Math.round(b.top), left: Math.round(b.left), width: Math.round(b.width), height: Math.round(b.height) };
       r.selectorStyles  = (() => {
         try {
           const s = window.getComputedStyle(el);
-          return { display: s.display, visibility: s.visibility, opacity: s.opacity, position: s.position };
+          return {
+            display: s.display,
+            visibility: s.visibility,
+            opacity: s.opacity,
+            position: s.position,
+            color: s.color,
+            backgroundColor: s.backgroundColor,
+            fontSize: s.fontSize,
+            fontWeight: s.fontWeight,
+            fontFamily: s.fontFamily.substring(0, 100),
+            padding: s.padding,
+            margin: s.margin,
+            border: s.border,
+            zIndex: s.zIndex,
+            overflow: s.overflow,
+            transform: s.transform !== 'none' ? s.transform : null,
+            transition: s.transition !== 'all 0s ease 0s' ? s.transition : null
+          };
         } catch { return null; }
       })();
     }

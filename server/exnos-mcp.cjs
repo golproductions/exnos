@@ -419,13 +419,14 @@ function askExtension(cmd, args) {
 const TOOLS = [
   {
     name: 'exnos_verify',
-    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos is free and open source: it reads a live Chrome tab through a local bridge, so it can break when a site ships a change. Treat a failed or empty read as "could not see", never as "the page is fine". By GOL Productions.',
+    description: 'Your eyes on the user\'s live Chrome tab, in milliseconds. Use it (1) right after editing any HTML, CSS, or JS file a browser is rendering, the same way a write is followed by a read-back; (2) the instant the user reports a page problem ("broken", "blank", "not working", "still the same", "nothing happens"), the console error usually names the bug outright; (3) always before saying "done", "fixed", or "deployed" for anything with a browser-facing result; (4) after a deploy or dev-server restart, to confirm the live tab got the new build; (5) at the start of any browser-related task, to see the page before fixing it. Returns the tab\'s URL, title, every visible form field with its live value, every button with its disabled state, checkboxes, visible alerts, console errors and uncaught exceptions since page load, scroll position, and visible page text. Read-only: never modifies the page. Skip it for work with no browser surface. Exnos is EXPERIMENTAL and free (MIT, as-is): it reads a live Chrome tab through a local bridge, so it can break when a site ships a change. Treat a failed or empty read as "could not see", never as "the page is fine". By GOL Productions.',
     inputSchema: {
       type: 'object',
       properties: {
         tab: { type: 'string', description: 'Optional substring to match a tab by URL or title. Defaults to the active tab.' },
-        selector: { type: 'string', description: 'Optional CSS selector: also returns that element\'s text, visibility, and HTML.' },
-        includeHidden: { type: 'boolean', description: 'Include elements that are off-screen or not currently visible. Defaults to false, which returns only what the user can actually see.' }
+        selector: { type: 'string', description: 'Optional CSS selector: also returns that element\'s text, visibility, computed styles (color, font-size, etc.), and HTML.' },
+        includeHidden: { type: 'boolean', description: 'Include elements that are off-screen or not currently visible. Defaults to false, which returns only what the user can actually see.' },
+        screenshot: { type: 'boolean', description: 'Also capture a PNG screenshot of the visible tab. Use for layout bugs that text state cannot reveal. Returns a data URL.' }
       }
     }
   },
@@ -433,6 +434,16 @@ const TOOLS = [
     name: 'exnos_tabs',
     description: 'List all open Chrome tabs (title, URL, which is active). Use to find the right tab value for exnos_verify.',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'exnos_screenshot',
+    description: 'Capture a PNG screenshot of the visible Chrome tab. Use for visual bugs where text state is not enough. Returns a base64 data URL.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tab: { type: 'string', description: 'Optional substring to match a tab by URL or title. Defaults to the active tab.' }
+      }
+    }
   },
   {
     name: 'exnos_fetch_tabs',
@@ -482,8 +493,9 @@ async function onRpc(msg) {
     const args = (params && params.arguments) || {};
     try {
       let data;
-      if (name === 'exnos_verify') data = await askExtension('state', { tab: args.tab, selector: args.selector, includeHidden: args.includeHidden || false });
+      if (name === 'exnos_verify') data = await askExtension('state', { tab: args.tab, selector: args.selector, includeHidden: args.includeHidden || false, screenshot: args.screenshot || false });
       else if (name === 'exnos_tabs') data = await askExtension('tabs', {});
+      else if (name === 'exnos_screenshot') data = await askExtension('screenshot', { tab: args.tab });
       else if (name === 'exnos_fetch_tabs') {
         const matchers = args.tabs || [];
         if (!matchers.length) return replyErr(id, -32602, 'exnos_fetch_tabs requires a non-empty tabs array');
@@ -502,9 +514,19 @@ async function onRpc(msg) {
       let text = JSON.stringify(data, null, 2);
       // Make the payoff legible: console errors are the one thing the agent
       // cannot see any other way, so surface them above the JSON.
-      if (name === 'exnos_verify' && data && Array.isArray(data.errors) && data.errors.length) {
-        text = data.errors.length + ' console error(s) / uncaught exception(s) on this page. Read them before reasoning about the code:\n' + text;
+      let prefix = '';
+      if (name === 'exnos_verify' && data) {
+        if (Array.isArray(data.errors) && data.errors.length) {
+          prefix += data.errors.length + ' console error(s) / uncaught exception(s) on this page. Read them before reasoning about the code.\n';
+        }
+        if (data.crossOriginIframes) {
+          prefix += 'Note: ' + data.crossOriginIframes + '.\n';
+        }
+        if (data.changed !== undefined) {
+          prefix += 'State ' + (data.changed ? 'CHANGED' : 'unchanged') + ' since last call.\n';
+        }
       }
+      if (prefix) text = prefix + text;
       if (name === 'exnos_fetch_tabs' && data && data.results) {
         let totalErrors = 0;
         for (const tab of Object.values(data.results)) {
