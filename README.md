@@ -164,7 +164,7 @@ npx @golproductions/exnos rules    # print rule text
 
 ## Privacy
 
-Exnos sends nothing to GOL Productions. No account, no telemetry, no server. Traffic goes from extension to `127.0.0.1` only.
+Exnos sends nothing to GOL Productions. No account, no telemetry, and no GOL server. Traffic goes from the extension to a local server on `127.0.0.1`, which only accepts the Exnos extension and requests from this machine: a web page cannot connect to it.
 
 **However**: What Exnos returns goes to your AI agent, which forwards it to its model provider. Cookies, storage, and response bodies can carry session tokens.
 
@@ -183,9 +183,9 @@ Point it at what you're debugging, not your banking tab.
 
 ## License
 
-MIT. Free and open source. See [LICENSE](./LICENSE).
+Free, under the GOL Open License: use, modify and redistribute it, with attribution to GOL Productions kept in every copy and fork. See [LICENSE](./LICENSE).
 
-"Exnos" and "GOL Productions" are trademarks. Forks must use a different name.
+"Exnos" and "GOL Productions" are trademarks. Forks must use a different name and state that they are based on software by GOL Productions.
 
 ---
 
