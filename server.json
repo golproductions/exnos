@@ -3,7 +3,7 @@
   "name": "com.golproductions/exnos",
   "title": "Exnos",
   "description": "Read-only live state of your Chrome tabs for AI agents: fields, console errors, network, storage.",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "websiteUrl": "https://golproductions.com/exnos",
   "repository": {
     "url": "https://github.com/golproductions/exnos",
@@ -19,7 +19,7 @@
     {
       "registryType": "npm",
       "identifier": "@golproductions/exnos",
-      "version": "0.5.6",
+      "version": "0.6.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

@@ -72,25 +72,32 @@ Badge reads **ON** when connected.
 
 ---
 
+## What Exnos Can Read
+
+- **Local pages, always:** `localhost`, `127.0.0.1`, `*.localhost`, and local files.
+- **Any other site, only if you allow it:** open the site and click the Exnos icon in Chrome's toolbar. Click again to remove it. Your AI cannot allow a site.
+- Tabs on other sites are not listed, matched or described to your AI.
+- The console and network capture runs only on sites Exnos can read. A page that was already open when you allowed its site needs one reload before its console and network are captured.
+
 ## What It Sees
 
 | Category | Data |
 |----------|------|
 | **Identity** | URL, title, ready state |
-| **Forms** | Every visible field with live value (passwords masked) |
+| **Forms** | Every visible field with its live value (passwords, API keys, tokens, card numbers and seed phrases masked) |
 | **Buttons** | Text and disabled state |
 | **Checkboxes** | Checked state with labels |
 | **Alerts** | Visible error/success/warning UI |
-| **Console** | Errors and uncaught exceptions since page load |
-| **Network** | Every fetch/XHR: URL, status, response body. Failures first. |
+| **Console** | Errors (with message and stack), warnings, and failed resource loads since page load, counted separately |
+| **Network** | This site's fetch/XHR: URL, status, short response body. Failures first. Other sites' requests only on request. |
 | **WebSocket** | Sent and received frames |
-| **Storage** | localStorage, sessionStorage, cookies |
-| **Performance** | Page load, TTFB, paint timing, long tasks, heap |
+| **Performance** | Page load, TTFB, paint timing |
 | **Focus** | Which element has focus |
 | **Shadow DOM** | Pierces web component boundaries |
 | **Iframes** | Same-origin content + cross-origin count |
-| **App State** | `window.__*` values |
 | **Screenshot** | Optional PNG capture |
+
+Only when asked: `localStorage`, `sessionStorage` and cookies (`includeStorage`, with tokens, keys and session values redacted), requests to other sites (`thirdParty`), and `window.__*` app state (`appGlobals`).
 
 ---
 
@@ -99,7 +106,7 @@ Badge reads **ON** when connected.
 | Tool | Purpose |
 |------|---------|
 | `exnos_verify` | Full live state. The main tool. |
-| `exnos_tabs` | List all open tabs. |
+| `exnos_tabs` | List the tabs Exnos can read. |
 | `exnos_screenshot` | PNG screenshot of visible tab. |
 | `exnos_fetch_tabs` | Verify multiple tabs at once. |
 
@@ -110,11 +117,14 @@ Badge reads **ON** when connected.
 | `tab` | Match tab by URL or title substring. Default: active tab. |
 | `selector` | CSS selector for deep-dive: text, bounds, computed styles, HTML. |
 | `includeHidden` | Include off-screen elements. Default: false. |
-| `screenshot` | Also capture PNG. Returns data URL. |
+| `thirdParty` | Include requests to other sites. Default: false. |
+| `includeStorage` | Include storage and cookies, credentials redacted. Default: false. |
+| `appGlobals` | Include `window.__*` app state. Default: false. |
+| `screenshot` | Also capture PNG of the visible tab. Returns data URL. |
 
 ### Selector deep-dive
 
-Pass `selector` to get:
+Pass `selector` to get the following. If nothing matches, the reply is only `selectorFound: false`.
 - `selectorText` — inner text content
 - `selectorVisible` — actually visible?
 - `selectorBounds` — `{top, left, width, height}`
@@ -159,6 +169,8 @@ npx @golproductions/exnos@latest rules       # print rule text
 - **Auto-reconnect**: Extension reconnects after Chrome/server restart
 - **Failures first**: Network errors surface before successful requests
 - **Cross-origin awareness**: Reports iframe count even when content isn't readable
+- **Out of the page's reach**: what Exnos captures is kept where the page's own scripts cannot read or change it
+- **Untrusted content label**: replies tell the AI that page text is data, not instructions
 
 ---
 
@@ -166,9 +178,9 @@ npx @golproductions/exnos@latest rules       # print rule text
 
 Exnos sends nothing to GOL Productions. No account, no telemetry, and no GOL server. Traffic goes from the extension to a local server on `127.0.0.1`, which only accepts the Exnos extension and requests from this machine: a web page cannot connect to it.
 
-**However**: What Exnos returns goes to your AI agent, which forwards it to its model provider. Cookies, storage, and response bodies can carry session tokens.
+**However**: what Exnos returns goes to your AI agent, which forwards it to its model provider. That is why Exnos reads only local pages and the sites you allow, masks passwords and similar fields, and returns storage and cookies only when asked, with credentials redacted. Redaction works by pattern, so it can miss a secret in an unusual place.
 
-Point it at what you're debugging, not your banking tab.
+Allow the sites you are debugging, not your banking tab.
 
 ---
 
@@ -176,7 +188,7 @@ Point it at what you're debugging, not your banking tab.
 
 - Server: `127.0.0.1:17872`. The Chrome extension always connects on this port, so keep it free.
 - `GET /` returns `{"exnos":true,"extension":true|false}`
-- Console/network taps run from `document_start`—pages open before extension load need one refresh
+- Console/network capture starts when a page loads on a site Exnos can read; pages already open need one reload
 - Internal pages (`chrome://`) cannot be inspected
 
 ---
