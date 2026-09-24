@@ -17,6 +17,61 @@ if (process.argv[2] === 'path') {
   process.exit(0);
 }
 
+// `exnos uninstall` removes exactly what `exnos setup` added, and nothing else:
+// the "exnos" MCP entry in Claude Code, Cursor and Windsurf, and the exnos tool
+// permissions in Claude Code. A config that is not valid JSON is left untouched.
+if (process.argv[2] === 'uninstall') {
+  const fs = require('fs');
+  const path = require('path');
+  const { execSync } = require('child_process');
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  console.log('\n  exnos uninstall\n');
+  let hasClaude = false;
+  try { execSync('claude --version', { stdio: 'pipe', windowsHide: true }); hasClaude = true; } catch {}
+  if (hasClaude) {
+    try {
+      execSync('claude mcp remove --scope user exnos', { stdio: 'pipe', windowsHide: true });
+      console.log('  Claude Code: unregistered.');
+    } catch (e) {
+      const msg = (e.message || e) + ' ' + (e.stderr || '');
+      console.log(/not found|no mcp server/i.test(msg) ? '  Claude Code: was not registered.' : '  Claude Code: could not unregister (' + (e.message || e) + ')');
+    }
+    const settingsPath = path.join(homeDir, '.claude', 'settings.local.json');
+    try {
+      if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        const allow = settings.permissions && settings.permissions.allow;
+        if (Array.isArray(allow)) {
+          const kept = allow.filter(t => !String(t).startsWith('mcp__exnos__'));
+          if (kept.length !== allow.length) {
+            settings.permissions.allow = kept;
+            fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+            console.log('  Claude Code: ' + (allow.length - kept.length) + ' tool permissions removed.');
+          }
+        }
+      }
+    } catch (e) {
+      console.error('  Claude Code: permissions left unchanged (' + (e.message || e) + ')');
+    }
+  }
+  for (const [label, file] of [['Cursor', path.join(homeDir, '.cursor', 'mcp.json')],
+                               ['Windsurf', path.join(homeDir, '.codeium', 'windsurf', 'mcp_config.json')]]) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (config.mcpServers && config.mcpServers.exnos) {
+        delete config.mcpServers.exnos;
+        fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n', 'utf8');
+        console.log('  ' + label + ': unregistered.');
+      }
+    } catch {
+      console.error('  ' + label + ': left unchanged (config is not valid JSON).');
+    }
+  }
+  console.log('\n  Last step: remove the Exnos extension at chrome://extensions.\n');
+  process.exit(0);
+}
+
 if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
   const fs = require('fs');
   const path = require('path');
@@ -87,7 +142,8 @@ if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
     const TOOLS = [
       'mcp__exnos__exnos_verify',
       'mcp__exnos__exnos_tabs',
-      'mcp__exnos__exnos_fetch_tabs'
+      'mcp__exnos__exnos_fetch_tabs',
+      'mcp__exnos__exnos_screenshot'
     ];
     const settingsPath = path.join(homeDir, '.claude', 'settings.local.json');
     try {
@@ -302,10 +358,23 @@ function onExtMessage(text) {
   }
 }
 
+// Only this machine may talk to the server. Browsers let any website open a
+// WebSocket or send a POST to 127.0.0.1, and a DNS-rebinding page can even pose
+// as same-origin, so without these checks a web page could impersonate the
+// extension (feeding fabricated "browser state" to the AI) or read real state
+// through /rpc. The Host must be this server, and only the Chrome extension
+// (chrome-extension:// origin) may open the extension channel. A second exnos
+// instance proxying through /rpc is a Node request: no Origin header at all.
+const LOCAL_HOSTS = new Set(['127.0.0.1:' + PORT, 'localhost:' + PORT]);
+const hostIsLocal = req => LOCAL_HOSTS.has(String(req.headers.host || '').toLowerCase());
+const isExtensionOrigin = req => /^chrome-extension:\/\/[a-p]{32}$/.test(String(req.headers.origin || ''));
+
 const server = http.createServer((req, res) => {
+  if (!hostIsLocal(req)) { res.writeHead(403); res.end(); return; }
   // POST /rpc lets a second exnos instance (port already taken) proxy its
   // tool calls through the instance that owns the extension connection.
   if (req.method === 'POST' && req.url === '/rpc') {
+    if (req.headers.origin !== undefined) { res.writeHead(403); res.end(); return; }
     let body = '';
     req.on('data', c => { body += c; });
     req.on('end', async () => {
@@ -327,6 +396,10 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key'];
   if (!key || req.url !== '/extension') { socket.destroy(); return; }
+  if (!hostIsLocal(req) || !isExtensionOrigin(req)) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    return;
+  }
   const accept = crypto.createHash('sha1').update(key + WS_MAGIC).digest('base64');
   socket.write(
     'HTTP/1.1 101 Switching Protocols\r\n' +

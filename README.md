@@ -127,6 +127,7 @@ Pass `selector` to get:
 
 ```
 npx @golproductions/exnos setup    # configure everything
+npx @golproductions/exnos uninstall   # remove everything setup added
 npx @golproductions/exnos path     # extension folder path
 npx @golproductions/exnos init     # write rules to agent config
 npx @golproductions/exnos rules    # print rule text
