@@ -4,7 +4,7 @@
 
 Your AI says "done." Exnos is how it knows.
 
-One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance—in milliseconds. Read-only. Local. Free and open source.
+One tool call returns the full state of the Chrome tab you're looking at: every field, every button, every console error, network requests, storage, performance—in milliseconds. Read-only. Local. Free to use. Built by GOL Productions.
 
 By [GOL Productions](https://golproductions.com).
 
@@ -195,9 +195,7 @@ Allow the sites you are debugging, not your banking tab.
 
 ## License
 
-Free, under the GOL Open License: use, modify and redistribute it, with attribution to GOL Productions kept in every copy and fork. See [LICENSE](./LICENSE).
-
-"Exnos" and "GOL Productions" are trademarks. Forks must use a different name and state that they are based on software by GOL Productions.
+Free to use, personal or commercial, under the GOL Free License. Exnos is built by GOL Productions: you may use it and share unmodified copies with the credit, but not publish changed versions, build your own product from it, or sell it. What you make with it is yours. See [LICENSE](./LICENSE).
 
 ---
 
