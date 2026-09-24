@@ -1,6 +1,7 @@
 {
   "name": "@golproductions/exnos",
-  "version": "0.5.4",
+  "mcpName": "com.golproductions/exnos",
+  "version": "0.5.5",
   "description": "Live browser-state verification for AI coding agents. One MCP call, milliseconds, truth. Free and open source. By GOL Productions.",
   "bin": {
     "exnos": "server/exnos-mcp.cjs"
