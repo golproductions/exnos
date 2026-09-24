@@ -17,9 +17,42 @@ if (process.argv[2] === 'path') {
   process.exit(0);
 }
 
-// `exnos uninstall` removes exactly what `exnos setup` added, and nothing else:
-// the "exnos" MCP entry in Claude Code, Cursor and Windsurf, and the exnos tool
-// permissions in Claude Code. A config that is not valid JSON is left untouched.
+// `exnos init` wraps the rule it writes in these markers, in these files, so
+// `exnos uninstall` can find and remove exactly that text.
+const RULE_MARK = '<!-- exnos:rule -->';
+const RULE_FILES = [
+  'CLAUDE.md',                          // Claude Code
+  'AGENTS.md',                          // Codex + emerging standard
+  'GEMINI.md',                          // Gemini CLI
+  '.windsurfrules',                     // Windsurf
+  '.clinerules',                        // Cline / Roo
+  '.github/copilot-instructions.md',    // GitHub Copilot
+  '.cursor/rules/exnos.mdc'             // Cursor (always creatable: own file)
+];
+const CURSOR_FRONTMATTER = '---\ndescription: Verify live browser state with Exnos\nalwaysApply: true\n---\n';
+const AGENTS_HEADER = '# Agent instructions\n';
+
+// A globally installed copy of Exnos (npm install -g). `npx @golproductions/exnos`
+// runs that copy instead of the current version, so setup warns about it and
+// uninstall removes it. Returns { dir, version } or null.
+function globalExnos() {
+  try {
+    const { execSync } = require('child_process');
+    const path = require('path');
+    const fs = require('fs');
+    const root = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 30000 }).toString().trim();
+    const dir = path.join(root, '@golproductions', 'exnos');
+    const pj = path.join(dir, 'package.json');
+    if (!root || !fs.existsSync(pj)) return null;
+    return { dir, version: JSON.parse(fs.readFileSync(pj, 'utf8')).version || '?' };
+  } catch { return null; }
+}
+
+// `exnos uninstall` removes what Exnos has added, and nothing else: the "exnos"
+// MCP entry in Claude Code (user scope, every project's local scope, and this
+// folder's .mcp.json), Cursor and Windsurf; the exnos tool permissions in
+// Claude Code; the rule `exnos init` wrote into this folder's rules files; and a
+// globally installed copy. A config that is not valid JSON is left untouched.
 if (process.argv[2] === 'uninstall') {
   const fs = require('fs');
   const path = require('path');
@@ -53,6 +86,29 @@ if (process.argv[2] === 'uninstall') {
     } catch (e) {
       console.error('  Claude Code: permissions left unchanged (' + (e.message || e) + ')');
     }
+    // Entries added without --scope user: Claude Code keeps those per project
+    // (local scope, in ~/.claude.json) or in a project's .mcp.json (project scope).
+    // Removed through Claude Code itself, run from each project's folder.
+    const removeIn = (scope, dir, label) => {
+      try {
+        execSync('claude mcp remove --scope ' + scope + ' exnos', { cwd: dir, stdio: 'pipe', windowsHide: true });
+        console.log('  Claude Code: unregistered (' + label + ').');
+      } catch (e) {
+        console.log('  Claude Code: could not unregister (' + label + '): ' + String(e.stderr || e.message || e).trim().split('\n')[0]);
+      }
+    };
+    try {
+      const claudeJson = JSON.parse(fs.readFileSync(path.join(homeDir, '.claude.json'), 'utf8'));
+      for (const [dir, project] of Object.entries(claudeJson.projects || {})) {
+        if (!(project && project.mcpServers && project.mcpServers.exnos)) continue;
+        if (fs.existsSync(dir)) removeIn('local', dir, 'project ' + dir);
+        else console.log('  Claude Code: left an entry for ' + dir + ' (that folder no longer exists).');
+      }
+    } catch {}
+    try {
+      const mcpJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), '.mcp.json'), 'utf8'));
+      if (mcpJson.mcpServers && mcpJson.mcpServers.exnos) removeIn('project', process.cwd(), '.mcp.json in this folder');
+    } catch {}
   }
   for (const [label, file] of [['Cursor', path.join(homeDir, '.cursor', 'mcp.json')],
                                ['Windsurf', path.join(homeDir, '.codeium', 'windsurf', 'mcp_config.json')]]) {
@@ -68,7 +124,41 @@ if (process.argv[2] === 'uninstall') {
       console.error('  ' + label + ': left unchanged (config is not valid JSON).');
     }
   }
-  console.log('\n  Last step: remove the Exnos extension at chrome://extensions.\n');
+  // The rule `exnos init` wrote into this folder: the text between the two
+  // markers, plus the newline before and after it that init added. A file init
+  // created holds nothing else once the rule is gone, so it is deleted.
+  for (const rel of RULE_FILES) {
+    const file = path.join(process.cwd(), rel);
+    if (!fs.existsSync(file)) continue;
+    try {
+      const text = fs.readFileSync(file, 'utf8');
+      const marks = text.split(RULE_MARK).length - 1;
+      if (marks === 0) continue;
+      if (marks !== 2) { console.log('  ' + rel + ': left unchanged (Exnos rule markers are not a single pair).'); continue; }
+      const rest = text.replace(/(\r?\n)?<!-- exnos:rule -->[\s\S]*<!-- exnos:rule -->(\r?\n)?/, '');
+      const plain = rest.replace(/\r\n/g, '\n');
+      if ((rel === '.cursor/rules/exnos.mdc' && plain === CURSOR_FRONTMATTER) || (rel === 'AGENTS.md' && plain === AGENTS_HEADER)) {
+        fs.unlinkSync(file);
+        console.log('  ' + rel + ': deleted (Exnos created it).');
+      } else {
+        fs.writeFileSync(file, rest, 'utf8');
+        console.log('  ' + rel + ': Exnos rule removed.');
+      }
+    } catch (e) {
+      console.error('  ' + rel + ': left unchanged (' + (e.message || e) + ')');
+    }
+  }
+  const globalCopy = globalExnos();
+  if (globalCopy) {
+    try {
+      execSync('npm uninstall -g @golproductions/exnos', { stdio: 'pipe', windowsHide: true, timeout: 120000 });
+      console.log('  Global install (' + globalCopy.version + '): removed.');
+    } catch (e) {
+      console.log('  Global install (' + globalCopy.version + '): could not remove. Run: npm uninstall -g @golproductions/exnos');
+    }
+  }
+  console.log('\n  Rules written by `exnos init` in other project folders: run uninstall in each.');
+  console.log('  Last step: remove the Exnos extension at chrome://extensions.\n');
   process.exit(0);
 }
 
@@ -206,6 +296,14 @@ if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
     console.log('  ' + JSON.stringify({ mcpServers: { exnos: mcpEntry } }));
   }
 
+  // -- An older global copy would be run instead of this version -----------
+  const globalCopy = globalExnos();
+  const thisVersion = require('../package.json').version;
+  if (globalCopy && globalCopy.version !== thisVersion) {
+    console.log('\n  Warning: Exnos ' + globalCopy.version + ' is installed globally, and your editor would run');
+    console.log('  it instead of ' + thisVersion + '. Remove it: npm uninstall -g @golproductions/exnos');
+  }
+
   // -- Chrome extension ---------------------------------------------------
   console.log('\n  Extension folder:\n  ' + extPath);
   console.log('\n  Open chrome://extensions, enable Developer mode, click "Load unpacked",');
@@ -225,7 +323,6 @@ if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
 // gets it called. `exnos init` writes this into every agent rules file present
 // in the current project, so the "when" survives clients that ignore MCP
 // server instructions.
-const RULE_MARK = '<!-- exnos:rule -->';
 const RULE_TEXT = [
   '',
   RULE_MARK,
@@ -243,16 +340,6 @@ const RULE_TEXT = [
   RULE_MARK,
   ''
 ].join('\n');
-
-const RULE_FILES = [
-  'CLAUDE.md',                          // Claude Code
-  'AGENTS.md',                          // Codex + emerging standard
-  'GEMINI.md',                          // Gemini CLI
-  '.windsurfrules',                     // Windsurf
-  '.clinerules',                        // Cline / Roo
-  '.github/copilot-instructions.md',    // GitHub Copilot
-  '.cursor/rules/exnos.mdc'             // Cursor (always creatable: own file)
-];
 
 if (process.argv[2] === 'rules') {
   console.log(RULE_TEXT.trim());
@@ -277,7 +364,7 @@ if (process.argv[2] === 'init') {
     if (current.includes(RULE_MARK)) { skipped.push(rel); continue; }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const body = isOwnFile
-      ? '---\ndescription: Verify live browser state with Exnos\nalwaysApply: true\n---\n' + RULE_TEXT
+      ? CURSOR_FRONTMATTER + RULE_TEXT
       : current + (current.endsWith('\n') || current === '' ? '' : '\n') + RULE_TEXT;
     fs.writeFileSync(file, body, 'utf8');
     touched.push(rel);
@@ -285,7 +372,7 @@ if (process.argv[2] === 'init') {
   if (!touched.length && !skipped.length) {
     // Fresh project with no agent rules files yet: seed the emerging standard.
     const file = path.join(cwd, 'AGENTS.md');
-    fs.writeFileSync(file, '# Agent instructions\n' + RULE_TEXT, 'utf8');
+    fs.writeFileSync(file, AGENTS_HEADER + RULE_TEXT, 'utf8');
     touched.push('AGENTS.md (created)');
   }
   for (const f of touched) console.log('exnos rule written: ' + f);

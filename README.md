@@ -39,7 +39,7 @@ Exnos gives your AI eyes. It sees what you see—instantly.
 ## Install
 
 ```
-npx @golproductions/exnos setup
+npx @golproductions/exnos@latest setup
 ```
 
 That's it. Detects Claude Code, Cursor, and Windsurf—registers with all of them, opens the extension folder, tells you to load it in Chrome. Takes 30 seconds.
@@ -55,13 +55,13 @@ That's it. Detects Claude Code, Cursor, and Windsurf—registers with all of the
 
 Or for Claude Code:
 ```
-claude mcp add exnos -- npx @golproductions/exnos
+claude mcp add --scope user exnos -- npx @golproductions/exnos
 ```
 
 **2. Load the extension**
 
 ```
-npx @golproductions/exnos path
+npx @golproductions/exnos@latest path
 ```
 
 Open `chrome://extensions` → Developer mode → **Load unpacked** → select that folder.
@@ -126,11 +126,11 @@ Pass `selector` to get:
 ## CLI
 
 ```
-npx @golproductions/exnos setup    # configure everything
-npx @golproductions/exnos uninstall   # remove everything setup added
-npx @golproductions/exnos path     # extension folder path
-npx @golproductions/exnos init     # write rules to agent config
-npx @golproductions/exnos rules    # print rule text
+npx @golproductions/exnos@latest setup       # configure everything
+npx @golproductions/exnos@latest uninstall   # remove everything Exnos added (run it in each project where you ran init)
+npx @golproductions/exnos@latest path        # extension folder path
+npx @golproductions/exnos@latest init        # write rules to agent config
+npx @golproductions/exnos@latest rules       # print rule text
 ```
 
 ---
