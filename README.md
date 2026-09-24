@@ -174,7 +174,7 @@ Point it at what you're debugging, not your banking tab.
 
 ## Notes
 
-- Server: `127.0.0.1:17872` (override: `EXNOS_PORT`)
+- Server: `127.0.0.1:17872`. The Chrome extension always connects on this port, so keep it free.
 - `GET /` returns `{"exnos":true,"extension":true|false}`
 - Console/network taps run from `document_start`—pages open before extension load need one refresh
 - Internal pages (`chrome://`) cannot be inspected
