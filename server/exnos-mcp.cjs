@@ -627,7 +627,7 @@ async function recordStart(args) {
   let tab;
   try { tab = await askExtension('pick', { tab: args.tab }); }
   catch (e) {
-    if (/Unknown command/.test(e.message)) throw new Error('The Exnos extension in Chrome is older than this server. Reload it at chrome://extensions (record mode needs extension ' + require('../package.json').version + ').');
+    if (/Unknown command/.test(e.message)) throw new Error('The Exnos extension in Chrome is older than this server (record mode needs extension ' + require('../package.json').version + '). Reload it at chrome://extensions; if it still shows the old version, remove it and load the folder printed by: npx @golproductions/exnos@latest path');
     throw e;
   }
   fs.mkdirSync(REC_DIR, { recursive: true });

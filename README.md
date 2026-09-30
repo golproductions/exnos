@@ -70,6 +70,10 @@ Badge reads **ON** when connected.
 
 </details>
 
+### Updating
+
+`npx` fetches the newest server on its own; the Chrome extension does not update itself. After an update, open `chrome://extensions` and click reload on Exnos. If it still shows the old version, remove it and load the folder printed by `npx @golproductions/exnos@latest path`.
+
 ---
 
 ## What Exnos Can Read
@@ -145,12 +149,12 @@ AI:  [calls exnos_record_start { tab: "localhost:3000", selector: "#orders", ite
 AI:  [calls exnos_record_read { lastMinutes: 15 }]
 ```
 
-Each saved sample holds the URL, title, whether the tab was visible, console errors, warnings and failed requests that are new since the last sample, and, with a `selector`, the text of that part of the page and its items (`[text, link, top, left, visible]`). Unchanged samples are not saved; a heartbeat every 30 seconds shows the recording went on.
+Each saved sample holds the URL, title, whether the tab was visible, and what is new since the last sample: console errors and warnings, failed resource loads, this site's requests and failed requests to other sites. With a `selector` it also holds the text of that part of the page and its items (`[text, link, top, left, visible]`). Unchanged samples are not saved; a heartbeat every 30 seconds shows the recording went on.
 
 | Parameter | Description |
 |-----------|-------------|
 | `tab` | Match tab by URL or title substring. Default: active tab. Fixed when recording starts. |
-| `selector` | Part of the page to watch (up to 20 matching elements). Without it: URL, title, visibility, errors and requests only. |
+| `selector` | Part of the page to watch: up to 20 matching elements, each with up to 1,000 characters of text and 100 items. Without it: URL, title, visibility, errors and requests only. |
 | `items` | Repeated items inside the selector (rows, cards). Default: links. |
 | `every` | Seconds between samples. Default 2, minimum 1. |
 | `duration` | Minutes to record. Default 60, maximum 1440 (24 h). |
@@ -158,9 +162,22 @@ Each saved sample holds the URL, title, whether the tab was visible, console err
 | `maxMB` | Stop at this file size. Default 200. |
 | `name` | Short label added to the recording id. |
 
+`exnos_record_read` parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `id` | Recording id. Default: the newest recording. |
+| `lastMinutes` | Only samples from the last N minutes. |
+| `from` / `to` | Only samples inside this time range (ISO time). |
+| `limit` | How many samples to return. Default 10, maximum 200. |
+| `oldestFirst` | Earliest matching samples instead of the latest. Default: false. |
+| `changesOnly` | Skip heartbeat lines. Default: true. |
+| `full` | Untrimmed text and items. Default: false (300 characters, 40 items per region). |
+
 - Recordings are saved on this machine in `~/.exnos/recordings/` (`<id>.jsonl`, one line per saved sample). The AI cannot choose the file path.
-- A recording keeps running after the AI session ends, until its duration is up, the tab closes, it reaches `maxMB`, or `exnos_record_stop` is called. A later session can list, read and stop it.
-- The same scope as `exnos_verify`, checked on every sample: if the tab moves to a site Exnos may not read, the recording stops. Form values are never recorded; URL parameters with sensitive-looking names are masked.
+- A recording keeps running after the AI session ends, until its duration is up, the tab closes, it reaches `maxMB`, or `exnos_record_stop` is called. A later session can list, read and stop it. Up to 3 recordings run at a time per session.
+- Chrome must stay open. A sample that fails (Chrome closed, page loading) is saved as an error line, at most one every 30 seconds.
+- The same scope as `exnos_verify`, checked on every sample: if the tab moves to a site Exnos may not read, the recording stops. Form field values are never recorded, but text typed into editable parts of the page can appear in the watched text. URL parameters with sensitive-looking names are masked.
 - Chrome slows hidden tabs. For pages that update live, keep the recorded tab visible.
 
 ---
@@ -197,7 +214,7 @@ npx @golproductions/exnos@latest rules       # print rule text
 ## Smart Features
 
 - **State change detection**: Reports `changed: true/false` on repeated calls
-- **Proxy mode**: Multiple agents share one extension connection
+- **Proxy mode**: Multiple agents share one extension connection; when the connected one closes, another takes over
 - **Auto-reconnect**: Extension reconnects after Chrome/server restart
 - **Failures first**: Network errors surface before successful requests
 - **Cross-origin awareness**: Reports iframe count even when content isn't readable
