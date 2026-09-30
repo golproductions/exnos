@@ -109,6 +109,10 @@ Only when asked: `localStorage`, `sessionStorage` and cookies (`includeStorage`,
 | `exnos_tabs` | List the tabs Exnos can read. |
 | `exnos_screenshot` | PNG screenshot of visible tab. |
 | `exnos_fetch_tabs` | Verify multiple tabs at once. |
+| `exnos_record_start` | Record a tab over time: saves what changed every few seconds. |
+| `exnos_record_status` | List recordings, including ones from earlier sessions. |
+| `exnos_record_read` | Read back a recording: a time range, latest or earliest first. |
+| `exnos_record_stop` | Stop one recording, or all of them. |
 
 ### exnos_verify parameters
 
@@ -130,6 +134,34 @@ Pass `selector` to get the following. If nothing matches, the reply is only `sel
 - `selectorBounds` — `{top, left, width, height}`
 - `selectorHTML` — outer HTML
 - `selectorStyles` — computed: color, backgroundColor, fontSize, fontWeight, fontFamily, padding, margin, border, zIndex, overflow, transform, transition
+
+### Record mode
+
+`exnos_verify` is a snapshot. A recording keeps watching: every few seconds Exnos samples the tab and saves what changed, so a bug that comes and goes, or a list that changes all day, can be read back later.
+
+```
+AI:  [calls exnos_record_start { tab: "localhost:3000", selector: "#orders", items: "tr", every: 2, duration: 120 }]
+     ... two hours later, from any session ...
+AI:  [calls exnos_record_read { lastMinutes: 15 }]
+```
+
+Each saved sample holds the URL, title, whether the tab was visible, console errors, warnings and failed requests that are new since the last sample, and, with a `selector`, the text of that part of the page and its items (`[text, link, top, left, visible]`). Unchanged samples are not saved; a heartbeat every 30 seconds shows the recording went on.
+
+| Parameter | Description |
+|-----------|-------------|
+| `tab` | Match tab by URL or title substring. Default: active tab. Fixed when recording starts. |
+| `selector` | Part of the page to watch (up to 20 matching elements). Without it: URL, title, visibility, errors and requests only. |
+| `items` | Repeated items inside the selector (rows, cards). Default: links. |
+| `every` | Seconds between samples. Default 2, minimum 1. |
+| `duration` | Minutes to record. Default 60, maximum 1440 (24 h). |
+| `includeHidden` | Also save items scrolled out of view. Default: false. |
+| `maxMB` | Stop at this file size. Default 200. |
+| `name` | Short label added to the recording id. |
+
+- Recordings are saved on this machine in `~/.exnos/recordings/` (`<id>.jsonl`, one line per saved sample). The AI cannot choose the file path.
+- A recording keeps running after the AI session ends, until its duration is up, the tab closes, it reaches `maxMB`, or `exnos_record_stop` is called. A later session can list, read and stop it.
+- The same scope as `exnos_verify`, checked on every sample: if the tab moves to a site Exnos may not read, the recording stops. Form values are never recorded; URL parameters with sensitive-looking names are masked.
+- Chrome slows hidden tabs. For pages that update live, keep the recorded tab visible.
 
 ---
 
@@ -179,6 +211,8 @@ npx @golproductions/exnos@latest rules       # print rule text
 Exnos sends nothing to GOL Productions. No account, no telemetry, and no GOL server. Traffic goes from the extension to a local server on `127.0.0.1`, which only accepts the Exnos extension and requests from this machine: a web page cannot connect to it.
 
 **However**: what Exnos returns goes to your AI agent, which forwards it to its model provider. That is why Exnos reads only local pages and the sites you allow, masks passwords and similar fields, and returns storage and cookies only when asked, with credentials redacted. Redaction works by pattern, so it can miss a secret in an unusual place.
+
+Recordings are saved only on this machine, in `~/.exnos/recordings/`; they reach the AI only when it reads them back. Delete the folder to delete them.
 
 Allow the sites you are debugging, not your banking tab.
 

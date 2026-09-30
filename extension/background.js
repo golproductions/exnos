@@ -210,6 +210,27 @@ async function handle(cmd, args) {
     }
     return state;
   }
+
+  // Record mode: the server fixes the tab once (pick), then samples it by id.
+  if (cmd === 'pick') {
+    const tab = await pickTab(args.tab);
+    return { id: tab.id, url: tab.url || '', title: tab.title || '', active: !!tab.active };
+  }
+
+  if (cmd === 'sample') {
+    let tab;
+    try { tab = await chrome.tabs.get(args.tabId); } catch { throw new Error('tab closed'); }
+    // Scope is checked on every sample: a recorded tab that moves to a site
+    // Exnos may not read is never read, and the recording stops.
+    if (!isAllowed(tab.url || '')) throw new Error('The recorded tab is on a site Exnos is not allowed to read.');
+    if (!/^(https?|file):/.test(tab.url || '')) return { url: tab.url, title: tab.title, active: !!tab.active, note: 'Internal page; nothing to sample.' };
+    const opts = { selector: args.selector || null, items: args.items || null, includeHidden: !!args.includeHidden, since: Number(args.since) || 0, textChars: 1000, maxItems: 100 };
+    const res = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'ISOLATED', func: sampleState, args: [opts] });
+    const s = res && res[0] ? res[0].result : null;
+    if (!s) throw new Error('Sample returned nothing (page may be loading)');
+    s.active = !!tab.active;
+    return s;
+  }
   throw new Error('Unknown command: ' + cmd);
 }
 
@@ -379,4 +400,75 @@ function extractState(opts) {
 
   r.text = document.body ? document.body.innerText.substring(0, MAX_TEXT) : '';
   return r;
+}
+
+// ─── sampleState (record mode) ────────────────────────────────────────────────
+// Runs in the ISOLATED world, like extractState. One recording tick: URL, title,
+// visibility, what was captured since the last tick, and the watched region.
+// No form values. URL parameters with sensitive-looking names are masked.
+function sampleState(opts) {
+  const { selector, items, includeHidden, since, textChars, maxItems } = opts;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const SENSITIVE_NAME = /pass|secret|token|api[-_]?key|auth|session|jwt|bearer|refresh|cred|card|cvv|cvc|iban|ssn|seed|mnemonic|private|otp|wallet|sig/i;
+  const cleanUrl = u => {
+    try {
+      const x = new URL(u, location.href);
+      for (const k of [...x.searchParams.keys()]) if (SENSITIVE_NAME.test(k)) x.searchParams.set(k, '***');
+      if (x.hash.length > 1 && SENSITIVE_NAME.test(x.hash)) x.hash = '#***';
+      return x.href.substring(0, 300);
+    } catch { return String(u || '').substring(0, 300); }
+  };
+  const inView = b => b.width > 0 && b.height > 0 && b.right > 0 && b.bottom > 0 && b.left < vw && b.top < vh;
+  function queryAll(root, sel) {
+    const results = [];
+    (function walk(node) {
+      try {
+        results.push(...node.querySelectorAll(sel));
+        const w = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+        for (let cur = w.nextNode(); cur; cur = w.nextNode()) if (cur.shadowRoot) walk(cur.shadowRoot);
+      } catch {}
+    })(root);
+    return results;
+  }
+  const siteOf = host => {
+    if (/^[\d.]+$/.test(host) || host.includes(':') || !host.includes('.')) return host;
+    const p = host.split('.');
+    return p.length > 2 && p[p.length - 1].length === 2 && /^(co|com|net|org|gov|edu|ac|or|ne|go)$/.test(p[p.length - 2]) ? p.slice(-3).join('.') : p.slice(-2).join('.');
+  };
+
+  const s = { url: cleanUrl(location.href), title: document.title, vis: document.visibilityState };
+  let last = since;
+  const store = globalThis.__exnosStore;
+  if (store) {
+    const logs = store.logs;
+    s.counts = { errors: logs.filter(l => l.kind === 'error').length, warnings: logs.filter(l => l.kind === 'warning').length, failedResources: logs.filter(l => l.kind === 'resource').length };
+    const newLogs = logs.filter(l => l.t > since);
+    if (newLogs.length) s.logs = newLogs.map(l => ({ kind: l.kind, uncaught: l.uncaught || undefined, text: String(l.text).substring(0, 500), t: l.t }));
+    const here = siteOf(location.hostname);
+    const isFirst = x => { try { return siteOf(new URL(x.url).hostname) === here; } catch { return true; } };
+    const newReqs = store.requests.filter(x => x.t > since && (isFirst(x) || !x.ok));
+    if (newReqs.length) s.requests = newReqs.map(x => ({ type: x.type, method: x.method, url: cleanUrl(x.url), status: x.status, ok: x.ok, ms: x.ms, error: x.error || undefined, t: x.t }));
+    for (const l of logs) if (l.t > last) last = l.t;
+    for (const x of store.requests) if (x.t > last) last = x.t;
+  } else {
+    s.capture = 'no console or network capture on this page: it was open before Exnos could read this site. Reload the tab to start capturing.';
+  }
+  s.last = last;
+
+  if (selector) {
+    const els = queryAll(document, selector);
+    if (!els.length) s.selectorFound = false;
+    else s.region = els.slice(0, 20).map(el => {
+      const b = el.getBoundingClientRect(), list = [];
+      for (const it of queryAll(el, items || 'a[href]')) {
+        const r = it.getBoundingClientRect(), v = inView(r);
+        if (!includeHidden && !v) continue;
+        const a = it.matches('a[href]') ? it : it.querySelector('a[href]');
+        list.push([(it.innerText || it.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 120), a ? cleanUrl(a.href) : null, Math.round(r.top), Math.round(r.left), v ? 1 : 0]);
+        if (list.length >= maxItems) break;
+      }
+      return { text: (el.innerText || '').substring(0, textChars), bounds: [Math.round(b.top), Math.round(b.left), Math.round(b.width), Math.round(b.height)], items: list };
+    });
+  }
+  return s;
 }

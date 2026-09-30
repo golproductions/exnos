@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Exnos",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Read-only live browser state for AI coding agents: console errors, network, page state. Local pages by default; other sites only when you allow them. By GOL Productions.",
   "permissions": [
     "scripting",
