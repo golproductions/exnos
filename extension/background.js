@@ -150,10 +150,11 @@ async function pickTab(filter) {
   return active;
 }
 
+// extractState hashes the whole page (all of its text, not just what it
+// returns), so a change far down the page still counts.
 function hashState(state) {
-  const key = JSON.stringify({ url: state.url, errors: state.counts ? state.counts.errors : 0, fields: state.fields?.map(f => f.value).join('|'), text: state.text?.substring(0, 500) });
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  const h = state._hash;
+  delete state._hash;
   return h;
 }
 
@@ -182,12 +183,12 @@ async function handle(cmd, args) {
     if (!/^(https?|file):/.test(tab.url || '')) {
       return { url: tab.url, title: tab.title, note: 'Internal page; state extraction only works on http/https/file pages.' };
     }
-    const opts = { selector: args.selector || null, includeHidden: !!args.includeHidden, includeStorage: !!args.includeStorage, thirdParty: !!args.thirdParty };
+    const maxText = args.maxText ? Math.min(20000, Math.max(500, Number(args.maxText) || 3000)) : 0;
+    const opts = { selector: args.selector || null, includeHidden: !!args.includeHidden, includeStorage: !!args.includeStorage, thirdParty: !!args.thirdParty, maxText };
     // ISOLATED world: the same world as collector.js, out of reach of page scripts.
     const res = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'ISOLATED', func: extractState, args: [opts] });
     const state = res && res[0] ? res[0].result : null;
     if (!state) throw new Error('State extraction returned nothing (page may still be loading)');
-    if (state.selectorFound === false) return state;
 
     if (args.appGlobals) {
       try {
@@ -256,7 +257,8 @@ function readAppGlobals() {
 function extractState(opts) {
   const { selector, includeHidden, includeStorage, thirdParty } = opts;
   const vw = window.innerWidth, vh = window.innerHeight;
-  const MAX_TEXT = 3000;
+  // Page text default 3000 characters, selector text and HTML 2000; maxText sets both.
+  const MAX_TEXT = opts.maxText || 3000, MAX_SEL = opts.maxText || 2000;
 
   const inViewport = b => b.width > 0 && b.height > 0 && b.right > 0 && b.bottom > 0 && b.left < vw && b.top < vh;
   const isComputedVisible = el => { const s = getComputedStyle(el); return s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0; };
@@ -273,15 +275,23 @@ function extractState(opts) {
     return results;
   }
 
-  // Selector first: a selector that matches nothing returns exactly that.
-  let selectorEls = null;
-  if (selector) {
-    selectorEls = queryAll(document, selector);
-    if (!selectorEls.length) return { url: location.href, title: document.title, selector, selectorFound: false, selectorCount: 0, note: 'No element on this page matches the selector.' };
-  }
+  // A CSS selector for an element: its id, or a tag path up to the nearest id
+  // (or body), so elements without an id still get one.
+  const cssPath = el => {
+    const parts = [];
+    for (let e = el; e && e.nodeType === 1 && parts.length < 8; e = e.parentElement) {
+      if (e.id) { parts.unshift('#' + CSS.escape(e.id)); break; }
+      let s = e.tagName.toLowerCase();
+      if (e === document.body || e === document.documentElement) { parts.unshift(s); break; }
+      const p = e.parentElement;
+      if (p) { const same = [...p.children].filter(c => c.tagName === e.tagName); if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(e) + 1) + ')'; }
+      parts.unshift(s);
+    }
+    return parts.join(' > ');
+  };
 
   // ── redaction ───────────────────────────────────────────────────────────────
-  const SENSITIVE_NAME = /pass|secret|token|api[-_]?key|auth|session|jwt|bearer|refresh|cred|card|cvv|cvc|iban|ssn|seed|mnemonic|private|otp|wallet|sig/i;
+  const SENSITIVE_NAME = /pass|secret|token|api[-_]?key|auth|session|jwt|bearer|refresh|cred|card|cvv|cvc|iban|ssn|seed|mnemonic|private|otp|wallet|sig|csrf|xsrf|nonce|captcha/i;
   const SENSITIVE_AUTOCOMPLETE = /cc-number|cc-csc|one-time-code|current-password|new-password/;
   const looksSecret = v => /^[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}$/.test(v) || /\beyJ[\w-]{10,}\.[\w-]{10,}/.test(v) || (/^[A-Za-z0-9_+/=-]{32,}$/.test(v) && /[0-9]/.test(v) && /[A-Za-z]/.test(v));
   const looksSeed = v => /^\s*([a-z]{3,8}\s+){11,23}[a-z]{3,8}\s*$/.test(v);
@@ -303,19 +313,19 @@ function extractState(opts) {
 
   r.fields = queryAll(document, 'input,select,textarea').map(e => {
     if (!includeHidden && !isVisible(e)) return null;
-    return { tag: e.tagName.toLowerCase(), type: e.type || '', name: e.name || e.id || '', value: fieldValue(e), checked: !!e.checked, disabled: !!e.disabled, placeholder: e.placeholder || '', visible: isComputedVisible(e), selector: e.id ? '#' + e.id : e.name ? e.tagName.toLowerCase() + '[name="' + e.name + '"]' : '' };
+    return { tag: e.tagName.toLowerCase(), type: e.type || '', name: e.name || e.id || '', value: fieldValue(e), checked: !!e.checked, disabled: !!e.disabled, placeholder: e.placeholder || '', visible: isComputedVisible(e), selector: e.id ? '#' + CSS.escape(e.id) : e.name ? e.tagName.toLowerCase() + '[name="' + CSS.escape(e.name) + '"]' : cssPath(e) };
   }).filter(Boolean);
 
   r.buttons = queryAll(document, 'button,[role=button],input[type=submit],input[type=button]').map(e => {
     if (!includeHidden && !isVisible(e)) return null;
     const t = (e.textContent || e.value || '').trim().substring(0, 60);
-    return t ? { text: t, disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true', visible: isComputedVisible(e), selector: e.id ? '#' + e.id : '' } : null;
+    return t ? { text: t, disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true', visible: isComputedVisible(e), selector: cssPath(e) } : null;
   }).filter(Boolean);
 
   r.checkboxes = queryAll(document, 'input[type=checkbox],input[type=radio]').map(e => {
     if (!includeHidden && !isVisible(e)) return null;
     const label = (e.labels && e.labels[0] && e.labels[0].textContent.trim()) || e.name || e.id || '';
-    return { label, checked: !!e.checked, disabled: !!e.disabled, selector: e.id ? '#' + e.id : e.name ? 'input[name="' + e.name + '"]' : '' };
+    return { label, checked: !!e.checked, disabled: !!e.disabled, selector: e.id ? '#' + CSS.escape(e.id) : e.name ? 'input[name="' + CSS.escape(e.name) + '"]' : cssPath(e) };
   }).filter(Boolean);
 
   r.alerts = queryAll(document, '[role=alert],[class*=error],[class*=success],[class*=warning],[class*=notice]').map(e => {
@@ -388,17 +398,34 @@ function extractState(opts) {
     if (Object.keys(meta).length) r.meta = meta;
   } catch {}
 
-  if (selectorEls) {
+  // A selector that matches nothing says so; the rest of the state (errors
+  // above all) still comes back.
+  const selectorEls = selector ? queryAll(document, selector) : null;
+  if (selectorEls && !selectorEls.length) { r.selector = selector; r.selectorFound = false; r.selectorCount = 0; }
+  else if (selectorEls) {
     const el = selectorEls[0], b = el.getBoundingClientRect(), s = getComputedStyle(el);
     r.selector = selector; r.selectorFound = true; r.selectorCount = selectorEls.length;
-    r.selectorText = (el.innerText || el.textContent || ('value' in el ? fieldValue(el) : '') || '').substring(0, 2000);
+    const selText = el.innerText || el.textContent || ('value' in el ? fieldValue(el) : '') || '';
+    r.selectorText = selText.substring(0, MAX_SEL);
+    if (selText.length > MAX_SEL) r.selectorTextTruncated = 'cut at ' + MAX_SEL + ' of ' + selText.length + ' characters';
     r.selectorVisible = isComputedVisible(el) && inViewport(b);
-    r.selectorHTML = el.outerHTML.replace(/(\svalue=")[^"]*(")/gi, (m, a, z) => ('value' in el && fieldValue(el) === '***') ? a + '***' + z : m).substring(0, 2000);
+    const html = el.outerHTML.replace(/(\svalue=")[^"]*(")/gi, (m, a, z) => ('value' in el && fieldValue(el) === '***') ? a + '***' + z : m);
+    r.selectorHTML = html.substring(0, MAX_SEL);
+    if (html.length > MAX_SEL) r.selectorHTMLTruncated = 'cut at ' + MAX_SEL + ' of ' + html.length + ' characters';
     r.selectorBounds = { top: Math.round(b.top), left: Math.round(b.left), width: Math.round(b.width), height: Math.round(b.height) };
     r.selectorStyles = { display: s.display, visibility: s.visibility, opacity: s.opacity, position: s.position, color: s.color, backgroundColor: s.backgroundColor, fontSize: s.fontSize, fontWeight: s.fontWeight, fontFamily: s.fontFamily.substring(0, 100), padding: s.padding, margin: s.margin, border: s.border, zIndex: s.zIndex, overflow: s.overflow, transform: s.transform !== 'none' ? s.transform : null, transition: s.transition !== 'all 0s ease 0s' ? s.transition : null };
   }
 
-  r.text = document.body ? document.body.innerText.substring(0, MAX_TEXT) : '';
+  const fullText = document.body ? document.body.innerText : '';
+  r.text = fullText.substring(0, MAX_TEXT);
+  if (fullText.length > MAX_TEXT) r.textTruncated = 'cut at ' + MAX_TEXT + ' of ' + fullText.length + ' characters';
+
+  // Change detection covers the whole page text, form values, checked and
+  // disabled states, visible alerts and the error/warning counts.
+  const key = JSON.stringify([location.href, fullText, r.fields.map(f => f.value + (f.checked ? 1 : 0) + (f.disabled ? 1 : 0)), r.buttons.map(x => x.text + (x.disabled ? 1 : 0)), r.checkboxes.map(x => x.checked), r.alerts, r.counts]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  r._hash = h >>> 0;
   return r;
 }
 
@@ -409,7 +436,7 @@ function extractState(opts) {
 function sampleState(opts) {
   const { selector, items, includeHidden, since, textChars, maxItems } = opts;
   const vw = window.innerWidth, vh = window.innerHeight;
-  const SENSITIVE_NAME = /pass|secret|token|api[-_]?key|auth|session|jwt|bearer|refresh|cred|card|cvv|cvc|iban|ssn|seed|mnemonic|private|otp|wallet|sig/i;
+  const SENSITIVE_NAME = /pass|secret|token|api[-_]?key|auth|session|jwt|bearer|refresh|cred|card|cvv|cvc|iban|ssn|seed|mnemonic|private|otp|wallet|sig|csrf|xsrf|nonce|captcha/i;
   const cleanUrl = u => {
     try {
       const x = new URL(u, location.href);
