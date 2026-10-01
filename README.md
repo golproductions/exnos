@@ -88,18 +88,19 @@ Badge reads **ON** when connected.
 | Category | Data |
 |----------|------|
 | **Identity** | URL, title, ready state |
-| **Forms** | Every visible field with its live value (passwords, API keys, tokens, card numbers and seed phrases masked) |
-| **Buttons** | Text and disabled state |
+| **Page text** | The page's rendered text, first 3,000 characters (`maxText` up to 20,000), marked when cut |
+| **Forms** | Every field in view with its live value and a selector (passwords, API keys, tokens, CSRF tokens, card numbers and seed phrases masked) |
+| **Buttons** | Text, disabled state and a selector |
 | **Checkboxes** | Checked state with labels |
 | **Alerts** | Visible error/success/warning UI |
 | **Console** | Errors (with message and stack), warnings, and failed resource loads since page load, counted separately |
-| **Network** | This site's fetch/XHR: URL, status, short response body. Failures first. Other sites' requests only on request. |
-| **WebSocket** | Sent and received frames |
+| **Network** | This site's fetch/XHR: URL, status, short response body; the last 30 failed and 20 successful. Other sites' requests only on request. |
+| **WebSocket** | The last 30 sent and received frames |
 | **Performance** | Page load, TTFB, paint timing |
 | **Focus** | Which element has focus |
 | **Shadow DOM** | Pierces web component boundaries |
 | **Iframes** | Same-origin content + cross-origin count |
-| **Screenshot** | Optional PNG capture |
+| **Screenshot** | Optional PNG, returned as an image |
 
 Only when asked: `localStorage`, `sessionStorage` and cookies (`includeStorage`, with tokens, keys and session values redacted), requests to other sites (`thirdParty`), and `window.__*` app state (`appGlobals`).
 
@@ -124,15 +125,16 @@ Only when asked: `localStorage`, `sessionStorage` and cookies (`includeStorage`,
 |-----------|-------------|
 | `tab` | Match tab by URL or title substring. Default: active tab. |
 | `selector` | CSS selector for deep-dive: text, bounds, computed styles, HTML. |
-| `includeHidden` | Include off-screen elements. Default: false. |
+| `maxText` | Characters of page text, and of selector text and HTML. Default 3,000 / 2,000, maximum 20,000. |
+| `includeHidden` | Also list fields, buttons and checkboxes outside the viewport or hidden, including `type=hidden` inputs. Default: false. Page text always covers the whole page; text hidden with `display:none` is never included. |
 | `thirdParty` | Include requests to other sites. Default: false. |
 | `includeStorage` | Include storage and cookies, credentials redacted. Default: false. |
 | `appGlobals` | Include `window.__*` app state. Default: false. |
-| `screenshot` | Also capture PNG of the visible tab. Returns data URL. |
+| `screenshot` | Also capture a PNG of the visible tab, returned as an image. |
 
 ### Selector deep-dive
 
-Pass `selector` to get the following. If nothing matches, the reply is only `selectorFound: false`.
+Pass `selector` to get the following for the first match. If nothing matches, `selectorFound` is `false` and the rest of the state (errors included) still comes back.
 - `selectorText` — inner text content
 - `selectorVisible` — actually visible?
 - `selectorBounds` — `{top, left, width, height}`
@@ -213,7 +215,7 @@ npx @golproductions/exnos@latest rules       # print rule text
 
 ## Smart Features
 
-- **State change detection**: Reports `changed: true/false` on repeated calls
+- **State change detection**: Reports `changed: true/false` on repeated calls, over the whole page text, form values, button and checkbox states, alerts and error counts
 - **Proxy mode**: Multiple agents share one extension connection; when the connected one closes, another takes over
 - **Auto-reconnect**: Extension reconnects after Chrome/server restart
 - **Failures first**: Network errors surface before successful requests
