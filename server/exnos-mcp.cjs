@@ -214,13 +214,9 @@ if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
   let hasClaude = false;
   try { execSync('claude --version', { stdio: 'pipe', windowsHide: true }); hasClaude = true; } catch {}
   if (hasClaude) {
-    const config = JSON.stringify(mcpEntry);
-    const escaped = process.platform === 'win32' ? config.replace(/"/g, '\\"') : config.replace(/'/g, "'\\''");
-    const addCmd = process.platform === 'win32'
-      ? `claude mcp add-json --scope user exnos "${escaped}"`
-      : `claude mcp add-json --scope user exnos '${escaped}'`;
+    // A fixed command with no quotes or escaping: the same on every platform.
     try {
-      execSync(addCmd, { stdio: 'pipe', windowsHide: true });
+      execSync('claude mcp add --scope user exnos -- npx @golproductions/exnos', { stdio: 'pipe', windowsHide: true });
       console.log('  Claude Code: registered.');
       registered++;
     } catch (e) {
@@ -317,10 +313,11 @@ if (process.argv[2] === 'setup' || (!process.argv[2] && process.stdin.isTTY)) {
   console.log('\n  Open chrome://extensions, enable Developer mode, click "Load unpacked",');
   console.log('  and pick the folder above. Badge reads ON when connected.');
 
+  // The folder path goes to the opener as an argument, never through a shell.
+  // (explorer exits 1 even when it opened the folder, so errors are ignored.)
   try {
-    if (process.platform === 'win32') execSync('explorer "' + extPath + '"', { stdio: 'ignore' });
-    else if (process.platform === 'darwin') execSync('open "' + extPath + '"', { stdio: 'ignore' });
-    else execSync('xdg-open "' + extPath + '"', { stdio: 'ignore' });
+    const opener = process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+    require('child_process').execFileSync(opener, [extPath], { stdio: 'ignore' });
   } catch {}
 
   console.log('\n  Done. Restart your editor, then verify:\n    exnos_verify\n');
